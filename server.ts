@@ -139,17 +139,51 @@ async function initDatabaseSchema() {
       );
     `);
 
-    // بذر بيانات الدول الأساسية إذا كانت فارغة
+    // 1. بذر بيانات الدول الأساسية
     await pool.query(`
       INSERT INTO ${SCHEMA}.countries (name_ar, name_en, code)
       VALUES 
         ('المملكة العربية السعودية', 'Saudi Arabia', 'SA'),
         ('جمهورية مصر العربية', 'Egypt', 'EG'),
+        ('المملكة المغربية', 'Morocco', 'MA'),
+        ('المملكة الأردنية الهاشمية', 'Jordan', 'JO'),
+        ('الإمارات العربية المتحدة', 'United Arab Emirates', 'AE'),
         ('دولة الكويت', 'Kuwait', 'KW')
       ON CONFLICT (code) DO NOTHING;
     `);
 
-    console.log(`✅ سكيما ${SCHEMA} وجداول إتقان جاهزة ومتصلة 100% في PostgreSQL!`);
+    // 2. بذر المستخدمين الأساسيين (مدير، مشرفين، معلمين) في قاعدة البيانات
+    await pool.query(`
+      INSERT INTO ${SCHEMA}.users (name, phone, email, role, is_active)
+      VALUES 
+        ('الشيخ عبد الله بن فهد المنصور', '+966501112233', 'admin@itqan-quran.org', 'ADMIN', true),
+        ('الشيخ د. عثمان الشنقيطي', '+966502223344', 'othman.sh@itqan-quran.org', 'SUPERVISOR', true),
+        ('الشيخ أحمد مصطفى المعصراوي', '+201003334455', 'maasarawi@itqan-quran.org', 'SUPERVISOR', true),
+        ('الشيخ عبد الرحمن بن ناصر', '+966503334455', 'abdulrahman@itqan-quran.org', 'TEACHER', true),
+        ('الشيخ بلال حمزة الإدريسي', '+212600112233', 'bilal.idrissi@itqan-quran.org', 'TEACHER', true),
+        ('الشيخ بدر الدين محمد', '+962791112233', 'badr.hanbali@itqan-quran.org', 'TEACHER', true),
+        ('الشيخ محمد صديق المنشاوي', '+201112223344', 'minshawi.study@itqan-quran.org', 'TEACHER', true)
+      ON CONFLICT (phone) DO NOTHING;
+    `);
+
+    // 3. بذر حلقات افتراضية أولية وربطها بالمعلمين
+    await pool.query(`
+      INSERT INTO ${SCHEMA}.halaqat (name, code, target_juz, level, schedule_days, time_slot, max_students, is_active)
+      VALUES 
+        ('حلقة الإمام الشاطبي للإتقان', 'HLQ-101', 5, 'متقدم', ARRAY['الأحد', 'الثلاثاء', 'الخميس'], 'بعد صلاة العصر', 15, true),
+        ('حلقة الإمام نافع المدني', 'HLQ-102', 3, 'متوسط', ARRAY['السبت', 'الإثنين', 'الأربعاء'], 'بعد صلاة المغرب', 12, true),
+        ('حلقة الإمام عاصم للناشئة', 'HLQ-103', 1, 'مبتدئ', ARRAY['الأحد', 'الثلاثاء', 'الخميس'], 'بعد صلاة العصر', 10, true)
+      ON CONFLICT (code) DO NOTHING;
+    `);
+
+    // ربط المعلمين بالحلقات تلقائياً
+    await pool.query(`
+      UPDATE ${SCHEMA}.halaqat h
+      SET teacher_id = (SELECT id FROM ${SCHEMA}.users WHERE role = 'TEACHER' ORDER BY name ASC LIMIT 1)
+      WHERE h.teacher_id IS NULL;
+    `);
+
+    console.log(`✅ سكيما ${SCHEMA} وجداول إتقان جاهزة ومتصلة 100% في PostgreSQL مع البيانات الأساسية!`);
   } catch (err: any) {
     console.error('❌ خطأ أثناء تهيئة سكيما قاعدة البيانات:', err.message);
   }
@@ -354,29 +388,61 @@ app.post('/api/v1/users', async (req: Request, res: Response) => {
   const { name, phone, email, password, role, countryId, dialectId, supervisorId } = req.body;
 
   try {
+    const cleanPhone = (phone || '').toString().trim();
+    const cleanName = (name || '').toString().trim();
+    const cleanEmail = email && typeof email === 'string' && email.trim() !== '' ? email.trim() : null;
+    const cleanRole = (role || 'STUDENT').toString().toUpperCase();
+
+    if (!cleanPhone || !cleanName) {
+      return res.status(400).json({ error: 'الاسم ورقم الهاتف مطلوبان' });
+    }
+
+    // مطابقة معرّف الدولة إذا كان UUID أو كود (مثل SA أو cnt-sa)
+    let resolvedCountryId: string | null = null;
+    if (countryId) {
+      if (typeof countryId === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(countryId)) {
+        resolvedCountryId = countryId;
+      } else {
+        const code = countryId.replace('cnt-', '').toUpperCase();
+        const cRes = await pool.query(`SELECT id FROM ${SCHEMA}.countries WHERE code = $1 LIMIT 1;`, [code]);
+        if (cRes.rows.length > 0) resolvedCountryId = cRes.rows[0].id;
+      }
+    }
+
+    // مطابقة معرّف المشرف إذا كان UUID
+    let resolvedSupervisorId: string | null = null;
+    if (supervisorId && typeof supervisorId === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(supervisorId)) {
+      resolvedSupervisorId = supervisorId;
+    }
+
     const result = await pool.query(
       `INSERT INTO ${SCHEMA}.users (name, phone, email, password_hash, role, country_id, dialect_id, supervisor_id)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        ON CONFLICT (phone) DO UPDATE SET 
          name = EXCLUDED.name,
-         email = EXCLUDED.email,
-         role = EXCLUDED.role
+         email = COALESCE(EXCLUDED.email, ${SCHEMA}.users.email),
+         role = EXCLUDED.role,
+         country_id = COALESCE(EXCLUDED.country_id, ${SCHEMA}.users.country_id),
+         supervisor_id = COALESCE(EXCLUDED.supervisor_id, ${SCHEMA}.users.supervisor_id),
+         updated_at = NOW()
        RETURNING id, name, phone, email, role, country_id AS "countryId", dialect_id AS "dialectId",
                  supervisor_id AS "supervisorId", is_active AS "isActive", created_at AS "createdAt";`,
       [
-        name,
-        phone,
-        email || null,
+        cleanName,
+        cleanPhone,
+        cleanEmail,
         password || '123456',
-        role || 'STUDENT',
-        countryId && countryId.includes('-') && countryId.length === 36 ? countryId : null,
-        dialectId && dialectId.includes('-') && dialectId.length === 36 ? dialectId : null,
-        supervisorId && supervisorId.includes('-') && supervisorId.length === 36 ? supervisorId : null
+        cleanRole,
+        resolvedCountryId,
+        null, // dialect_id
+        resolvedSupervisorId
       ]
     );
+
+    console.log(`✅ تم حفظ/تحديث المستخدم بنجاح في PostgreSQL:`, result.rows[0]);
     res.status(201).json(result.rows[0]);
   } catch (err: any) {
-    console.error('Error creating user:', err);
+    console.error('❌ خطأ أثناء إنشاء المستخدم في PostgreSQL:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -407,6 +473,20 @@ app.post('/api/v1/halaqat', async (req: Request, res: Response) => {
   const { name, code, teacherId, supervisorId, targetJuz, level, scheduleDays, timeSlot, maxStudents } = req.body;
 
   try {
+    let resolvedTeacherId: string | null = null;
+    if (teacherId && typeof teacherId === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(teacherId)) {
+      resolvedTeacherId = teacherId;
+    } else {
+      // إذا لم يكن UUID، اختر أول معلم متوفر في قاعدة البيانات
+      const tRes = await pool.query(`SELECT id FROM ${SCHEMA}.users WHERE role = 'TEACHER' LIMIT 1;`);
+      if (tRes.rows.length > 0) resolvedTeacherId = tRes.rows[0].id;
+    }
+
+    let resolvedSupervisorId: string | null = null;
+    if (supervisorId && typeof supervisorId === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(supervisorId)) {
+      resolvedSupervisorId = supervisorId;
+    }
+
     const result = await pool.query(
       `INSERT INTO ${SCHEMA}.halaqat (name, code, teacher_id, supervisor_id, target_juz, level, schedule_days, time_slot, max_students)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -418,8 +498,8 @@ app.post('/api/v1/halaqat', async (req: Request, res: Response) => {
       [
         name,
         code || `HLQ-${Date.now().toString().slice(-4)}`,
-        teacherId && teacherId.length === 36 ? teacherId : null,
-        supervisorId && supervisorId.length === 36 ? supervisorId : null,
+        resolvedTeacherId,
+        resolvedSupervisorId,
         targetJuz || 3,
         level || 'متوسط',
         scheduleDays || ['الأحد', 'الثلاثاء', 'الخميس'],
@@ -429,6 +509,7 @@ app.post('/api/v1/halaqat', async (req: Request, res: Response) => {
     );
     res.status(201).json(result.rows[0]);
   } catch (err: any) {
+    console.error('Error creating halaqah:', err);
     res.status(500).json({ error: err.message });
   }
 });

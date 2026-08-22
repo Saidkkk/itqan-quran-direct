@@ -80,9 +80,12 @@ export const api = {
       });
       if (res.ok) {
         return await res.json();
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        console.error('Server error creating user:', errData);
       }
     } catch (e) {
-      console.error('API createUser error:', e);
+      console.error('API createUser network error:', e);
     }
     const id = `usr-${Date.now()}`;
     const newUser: User = {
