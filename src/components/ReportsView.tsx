@@ -42,17 +42,45 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
   sessions,
   enrollments
 }) => {
-  const [activeReportTab, setActiveReportTab] = useState<'STUDENT' | 'CIRCLE' | 'TEACHER'>('STUDENT');
-  const [selectedStudentId, setSelectedStudentId] = useState<string>('usr-std-1');
-  const [selectedCircleId, setSelectedCircleId] = useState<string>('hlq-nafe-1');
-  const [searchQuery, setSearchQuery] = useState('');
+  const isStudent = currentUser.role === 'STUDENT';
+  const isTeacher = currentUser.role === 'TEACHER';
 
-  const students = users.filter(u => u.role === 'STUDENT');
+  const [activeReportTab, setActiveReportTab] = useState<'STUDENT' | 'CIRCLE' | 'TEACHER'>('STUDENT');
+
+  // Allowed halaqat based on role
+  const allowedHalaqat = isTeacher 
+    ? halaqat.filter(h => h.teacherId === currentUser.id)
+    : halaqat;
+
+  // Allowed students based on role
+  const teacherCircleIds = allowedHalaqat.map(h => h.id);
+  const teacherEnrolledStudentIds = enrollments
+    .filter(e => teacherCircleIds.includes(e.circleId))
+    .map(e => e.studentId);
+
+  const availableStudents = isStudent 
+    ? [currentUser]
+    : isTeacher 
+    ? users.filter(u => u.role === 'STUDENT' && teacherEnrolledStudentIds.includes(u.id))
+    : users.filter(u => u.role === 'STUDENT');
+
+  const students = availableStudents.length > 0 ? availableStudents : users.filter(u => u.role === 'STUDENT');
   const teachers = users.filter(u => u.role === 'TEACHER');
   const supervisors = users.filter(u => u.role === 'SUPERVISOR');
 
+  // Selected Student Logic
+  const [selectedStudentId, setSelectedStudentId] = useState<string>(
+    isStudent ? currentUser.id : (students[0]?.id || 'usr-std-1')
+  );
+  const [selectedCircleId, setSelectedCircleId] = useState<string>(
+    allowedHalaqat[0]?.id || 'hlq-nafe-1'
+  );
+  const [searchQuery, setSearchQuery] = useState('');
+
   // --- Student Report Logic ---
-  const currentSelectedStudent = students.find(s => s.id === selectedStudentId) || students[0];
+  const currentSelectedStudent = isStudent 
+    ? currentUser 
+    : (students.find(s => s.id === selectedStudentId) || students[0]);
   
   // Calculate student metrics
   const studentSessions = sessions.filter(ses => ses.evaluations[currentSelectedStudent?.id]);
@@ -148,43 +176,47 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
         </div>
 
         {/* Tab Switcher */}
-        <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 p-1.5 rounded-xl text-xs font-bold">
-          <button
-            onClick={() => setActiveReportTab('STUDENT')}
-            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg transition ${
-              activeReportTab === 'STUDENT'
-                ? 'bg-white dark:bg-slate-700 text-emerald-700 dark:text-emerald-300 shadow-xs'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-            }`}
-          >
-            <GraduationCap className="w-4 h-4" />
-            <span>تقرير أداء الطالب</span>
-          </button>
+        {!isStudent && (
+          <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 p-1.5 rounded-xl text-xs font-bold overflow-x-auto">
+            <button
+              onClick={() => setActiveReportTab('STUDENT')}
+              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg transition whitespace-nowrap ${
+                activeReportTab === 'STUDENT'
+                  ? 'bg-white dark:bg-slate-700 text-emerald-700 dark:text-emerald-300 shadow-xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+              }`}
+            >
+              <GraduationCap className="w-4 h-4" />
+              <span>{isTeacher ? 'أداء طلاب حلقاتي' : 'تقرير أداء الطالب'}</span>
+            </button>
 
-          <button
-            onClick={() => setActiveReportTab('CIRCLE')}
-            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg transition ${
-              activeReportTab === 'CIRCLE'
-                ? 'bg-white dark:bg-slate-700 text-emerald-700 dark:text-emerald-300 shadow-xs'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-            }`}
-          >
-            <Users className="w-4 h-4" />
-            <span>إنتاجية الحلقة</span>
-          </button>
+            <button
+              onClick={() => setActiveReportTab('CIRCLE')}
+              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg transition whitespace-nowrap ${
+                activeReportTab === 'CIRCLE'
+                  ? 'bg-white dark:bg-slate-700 text-emerald-700 dark:text-emerald-300 shadow-xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+              }`}
+            >
+              <Users className="w-4 h-4" />
+              <span>{isTeacher ? 'إنتاجية حلقاتي' : 'إنتاجية الحلقة'}</span>
+            </button>
 
-          <button
-            onClick={() => setActiveReportTab('TEACHER')}
-            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg transition ${
-              activeReportTab === 'TEACHER'
-                ? 'bg-white dark:bg-slate-700 text-emerald-700 dark:text-emerald-300 shadow-xs'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-            }`}
-          >
-            <BookCheck className="w-4 h-4" />
-            <span>متابعة المعلمين والمشرفين</span>
-          </button>
-        </div>
+            {!isTeacher && (
+              <button
+                onClick={() => setActiveReportTab('TEACHER')}
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg transition whitespace-nowrap ${
+                  activeReportTab === 'TEACHER'
+                    ? 'bg-white dark:bg-slate-700 text-emerald-700 dark:text-emerald-300 shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                }`}
+              >
+                <BookCheck className="w-4 h-4" />
+                <span>متابعة المعلمين والمشرفين</span>
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ─────────────────────────────────────────────────────────────
@@ -195,20 +227,31 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
           {/* Selector & Actions */}
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 shadow-xs flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
-              <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                اختر الطالب للمعاينة:
-              </label>
-              <select
-                value={selectedStudentId}
-                onChange={(e) => setSelectedStudentId(e.target.value)}
-                className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-1.5 text-xs font-bold text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-emerald-500 outline-none"
-              >
-                {students.map(s => (
-                  <option key={s.id} value={s.id}>
-                    {s.name} ({s.phone})
-                  </option>
-                ))}
-              </select>
+              {isStudent ? (
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                  <span className="text-xs font-bold text-slate-800 dark:text-white">
+                    ملف إنجاز الطالب: <strong className="text-emerald-600 dark:text-emerald-400">{currentUser.name}</strong>
+                  </span>
+                </div>
+              ) : (
+                <>
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                    اختر الطالب للمعاينة:
+                  </label>
+                  <select
+                    value={selectedStudentId}
+                    onChange={(e) => setSelectedStudentId(e.target.value)}
+                    className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-1.5 text-xs font-bold text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-emerald-500 outline-none"
+                  >
+                    {students.map(s => (
+                      <option key={s.id} value={s.id}>
+                        {s.name} ({s.phone})
+                      </option>
+                    ))}
+                  </select>
+                </>
+              )}
             </div>
 
             <div className="flex items-center gap-2">
