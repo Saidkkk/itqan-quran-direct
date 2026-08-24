@@ -11,9 +11,12 @@ import {
   Users, 
   X,
   Edit2,
+  AlertTriangle,
+  Info,
+  Layers,
   Sparkles
 } from 'lucide-react';
-import { Country, Dialect, Halaqah, StudentEnrollment, User, UserRole } from '../types';
+import { Country, Dialect, Halaqah, HalaqahSession, StudentEnrollment, User, UserRole } from '../types';
 import { api } from '../utils/api';
 
 interface AdminManagementProps {
@@ -25,6 +28,7 @@ interface AdminManagementProps {
   setUsers: (users: User[]) => void;
   enrollments?: StudentEnrollment[];
   setEnrollments?: (enrollments: StudentEnrollment[]) => void;
+  sessions?: HalaqahSession[];
 }
 
 export const AdminManagement: React.FC<AdminManagementProps> = ({
@@ -35,21 +39,54 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
   users,
   setUsers,
   enrollments = [],
-  setEnrollments
+  setEnrollments,
+  sessions = []
 }) => {
   const [activeTab, setActiveTab] = useState<'DEFINITIONS' | 'HALAQAT' | 'USERS'>('HALAQAT');
 
-  // Country / Dialect Modal State
+  // -------------------------------------------------------------
+  // Delete Validation & Confirmation Modal State
+  // -------------------------------------------------------------
+  const [deleteDialog, setDeleteDialog] = useState<{
+    isOpen: boolean;
+    type: 'COUNTRY' | 'DIALECT' | 'HALAQAH' | 'USER';
+    id: string;
+    name: string;
+    parentCountryId?: string; // for dialect
+    isBlocked: boolean;
+    blockReasons: string[];
+    confirmAction?: () => Promise<void>;
+  }>({
+    isOpen: false,
+    type: 'USER',
+    id: '',
+    name: '',
+    isBlocked: false,
+    blockReasons: []
+  });
+
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  // -------------------------------------------------------------
+  // Country & Dialect State (Add & Edit)
+  // -------------------------------------------------------------
   const [isAddCountryModalOpen, setIsAddCountryModalOpen] = useState(false);
   const [newCountryNameAr, setNewCountryNameAr] = useState('');
+  const [newCountryNameEn, setNewCountryNameEn] = useState('');
   const [newCountryCode, setNewCountryCode] = useState('');
+
+  const [editingCountry, setEditingCountry] = useState<Country | null>(null);
 
   const [isAddDialectModalOpen, setIsAddDialectModalOpen] = useState(false);
   const [selectedCountryForDialect, setSelectedCountryForDialect] = useState<string>('');
   const [newDialectName, setNewDialectName] = useState('');
   const [newDialectDescription, setNewDialectDescription] = useState('');
 
-  // Halaqah Modal State
+  const [editingDialect, setEditingDialect] = useState<{ countryId: string; dialect: Dialect } | null>(null);
+
+  // -------------------------------------------------------------
+  // Halaqah State (Add & Edit)
+  // -------------------------------------------------------------
   const [isAddHalaqahModalOpen, setIsAddHalaqahModalOpen] = useState(false);
   const [newHalaqahName, setNewHalaqahName] = useState('');
   const [newHalaqahTeacherId, setNewHalaqahTeacherId] = useState('');
@@ -58,7 +95,11 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
   const [newHalaqahTargetJuz, setNewHalaqahTargetJuz] = useState<number>(3);
   const [newHalaqahTime, setNewHalaqahTime] = useState('بعد صلاة العصر');
 
-  // User Modal State
+  const [editingHalaqah, setEditingHalaqah] = useState<Halaqah | null>(null);
+
+  // -------------------------------------------------------------
+  // User State (Add & Edit)
+  // -------------------------------------------------------------
   const [isAddUserModalOpen, setIsAddUserModalOpen] = useState(false);
   const [newUserName, setNewUserName] = useState('');
   const [newUserEmail, setNewUserEmail] = useState('');
@@ -70,23 +111,201 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
   const [newUserTeacherId, setNewUserTeacherId] = useState('');
   const [newUserHalaqahId, setNewUserHalaqahId] = useState(halaqat[0]?.id || '');
 
-  // Quick Student Enrollment Modal State (from Halaqah Card)
+  const [editingUser, setEditingUser] = useState<User | null>(null);
+
+  // Quick Student Enrollment Modal State
   const [isEnrollModalOpen, setIsEnrollModalOpen] = useState(false);
   const [selectedHalaqahForEnroll, setSelectedHalaqahForEnroll] = useState<Halaqah | null>(null);
   const [selectedStudentToEnroll, setSelectedStudentToEnroll] = useState<string>('');
+
+  const [userActionError, setUserActionError] = useState<string | null>(null);
+  const [isSubmittingUser, setIsSubmittingUser] = useState(false);
 
   const teachers = users.filter(u => u.role === 'TEACHER');
   const supervisors = users.filter(u => u.role === 'SUPERVISOR');
   const students = users.filter(u => u.role === 'STUDENT');
 
-  // Country / Dialect handlers
+  // =========================================================================
+  // DEPENDENCY CHECKERS & DELETE TRIGGERS (فحص التبعيات قبل الحذف)
+  // =========================================================================
+
+  // 1. Delete Country Check
+  const requestDeleteCountry = (country: Country) => {
+    const linkedUsers = users.filter(u => 
+      u.countryId === country.id || 
+      u.countryId === country.code || 
+      u.countryId === `cnt-${country.code.toLowerCase()}`
+    );
+    const linkedDialects = country.dialects || [];
+
+    const blockReasons: string[] = [];
+    if (linkedUsers.length > 0) {
+      blockReasons.push(`يوجد ${linkedUsers.length} مستخدم مسجل مرتبط بهذه الدولة (${linkedUsers.slice(0, 3).map(u => u.name).join('، ')}${linkedUsers.length > 3 ? '...' : ''}).`);
+    }
+    if (linkedDialects.length > 0) {
+      blockReasons.push(`يوجد ${linkedDialects.length} لهجة مسجلة تابعة لهذه الدولة (${linkedDialects.map(d => d.name).join('، ')}).`);
+    }
+
+    setDeleteDialog({
+      isOpen: true,
+      type: 'COUNTRY',
+      id: country.id,
+      name: country.nameAr,
+      isBlocked: blockReasons.length > 0,
+      blockReasons,
+      confirmAction: async () => {
+        await api.deleteCountry(country.id);
+        setCountries(countries.filter(c => c.id !== country.id));
+      }
+    });
+  };
+
+  // 2. Delete Dialect Check
+  const requestDeleteDialect = (countryId: string, dialect: Dialect) => {
+    const linkedUsers = users.filter(u => u.dialectId === dialect.id);
+    const blockReasons: string[] = [];
+
+    if (linkedUsers.length > 0) {
+      blockReasons.push(`يوجد ${linkedUsers.length} مستخدم مسجل مرتبط بهذه اللهجة (${linkedUsers.slice(0, 3).map(u => u.name).join('، ')}${linkedUsers.length > 3 ? '...' : ''}).`);
+    }
+
+    setDeleteDialog({
+      isOpen: true,
+      type: 'DIALECT',
+      id: dialect.id,
+      name: dialect.name,
+      parentCountryId: countryId,
+      isBlocked: blockReasons.length > 0,
+      blockReasons,
+      confirmAction: async () => {
+        try {
+          await api.deleteDialect(dialect.id);
+        } catch {
+          // fallback if offline
+        }
+        setCountries(countries.map(c => {
+          if (c.id === countryId) {
+            return { ...c, dialects: c.dialects.filter(d => d.id !== dialect.id) };
+          }
+          return c;
+        }));
+      }
+    });
+  };
+
+  // 3. Delete Halaqah Check
+  const requestDeleteHalaqah = (hlq: Halaqah) => {
+    const linkedEnrollments = enrollments.filter(e => e.circleId === hlq.id);
+    const linkedSessions = sessions.filter(s => s.circleId === hlq.id);
+    const enrolledStudentNames = students
+      .filter(s => linkedEnrollments.some(e => e.studentId === s.id))
+      .map(s => s.name);
+
+    const blockReasons: string[] = [];
+    if (linkedEnrollments.length > 0) {
+      blockReasons.push(`يوجد ${linkedEnrollments.length} طالب مسجل بهذه الحلقة (${enrolledStudentNames.slice(0, 3).join('، ')}${enrolledStudentNames.length > 3 ? '...' : ''}). يرجى إلغاء تسجيلهم أو نقلهم لحلقة أخرى أولاً.`);
+    }
+    if (linkedSessions.length > 0) {
+      blockReasons.push(`يوجد ${linkedSessions.length} جلسة تسميع وتقييم موثقة مرتبطة بهذه الحلقة.`);
+    }
+
+    setDeleteDialog({
+      isOpen: true,
+      type: 'HALAQAH',
+      id: hlq.id,
+      name: hlq.name,
+      isBlocked: blockReasons.length > 0,
+      blockReasons,
+      confirmAction: async () => {
+        await api.deleteHalaqah(hlq.id);
+        setHalaqat(halaqat.filter(h => h.id !== hlq.id));
+      }
+    });
+  };
+
+  // 4. Delete User Check
+  const requestDeleteUser = (user: User) => {
+    const blockReasons: string[] = [];
+
+    // Check if Teacher assigned to halaqat
+    if (user.role === 'TEACHER') {
+      const assignedHalaqat = halaqat.filter(h => h.teacherId === user.id);
+      if (assignedHalaqat.length > 0) {
+        blockReasons.push(`هذا المعلم مسؤول حالياً عن ${assignedHalaqat.length} حلقة (${assignedHalaqat.map(h => h.name).join('، ')}). يرجى تعيين معلم بديل للحلقات قبل الحذف.`);
+      }
+    }
+
+    // Check if Supervisor assigned to halaqat or users
+    if (user.role === 'SUPERVISOR') {
+      const supervisedHalaqat = halaqat.filter(h => h.supervisorId === user.id);
+      const supervisedUsers = users.filter(u => u.supervisorId === user.id);
+      if (supervisedHalaqat.length > 0) {
+        blockReasons.push(`هذا المشرف يتابع حالياً ${supervisedHalaqat.length} حلقة (${supervisedHalaqat.map(h => h.name).join('، ')}). يرجى تغيير المشرف في الحلقات أولاً.`);
+      }
+      if (supervisedUsers.length > 0) {
+        blockReasons.push(`يوجد ${supervisedUsers.length} معلم/مستخدم مسند لهذا المشرف.`);
+      }
+    }
+
+    // Check if Student enrolled in halaqat
+    if (user.role === 'STUDENT') {
+      const studentEnrs = enrollments.filter(e => e.studentId === user.id);
+      if (studentEnrs.length > 0) {
+        const circleNames = studentEnrs
+          .map(e => halaqat.find(h => h.id === e.circleId)?.name)
+          .filter(Boolean);
+        blockReasons.push(`الطالب مسجل حالياً في ${studentEnrs.length} حلقة (${circleNames.join('، ')}). يرجى إلغاء تسجيله من الحلقة أولاً.`);
+      }
+    }
+
+    // Check if Admin (cannot delete last admin)
+    if (user.role === 'ADMIN') {
+      const adminCount = users.filter(u => u.role === 'ADMIN').length;
+      if (adminCount <= 1) {
+        blockReasons.push(`لا يمكن حذف آخر مدير نظام في المنصة لضمان استمرارية التحكم.`);
+      }
+    }
+
+    setDeleteDialog({
+      isOpen: true,
+      type: 'USER',
+      id: user.id,
+      name: `${user.name} (${user.role})`,
+      isBlocked: blockReasons.length > 0,
+      blockReasons,
+      confirmAction: async () => {
+        await api.deleteUser(user.id);
+        setUsers(users.filter(u => u.id !== user.id));
+      }
+    });
+  };
+
+  // Execute Confirmed Delete
+  const handleExecuteDelete = async () => {
+    if (!deleteDialog.confirmAction || deleteDialog.isBlocked) return;
+    setIsDeleting(true);
+    try {
+      await deleteDialog.confirmAction();
+      setDeleteDialog(prev => ({ ...prev, isOpen: false }));
+    } catch (err: any) {
+      alert(err.message || 'حدث خطأ أثناء الحذف');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  // =========================================================================
+  // CRUD HANDLERS
+  // =========================================================================
+
+  // Country Handlers
   const handleAddCountry = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCountryNameAr.trim()) return;
 
     const payload = {
       nameAr: newCountryNameAr.trim(),
-      nameEn: newCountryCode.trim() || 'Country',
+      nameEn: newCountryNameEn.trim() || 'Country',
       code: newCountryCode.trim().toUpperCase() || `C${Date.now().toString().slice(-4)}`,
       dialects: []
     };
@@ -94,25 +313,55 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
     const savedCountry = await api.createCountry(payload);
     setCountries([...countries, savedCountry]);
     setNewCountryNameAr('');
+    setNewCountryNameEn('');
     setNewCountryCode('');
     setIsAddCountryModalOpen(false);
   };
 
-  const handleAddDialect = (e: React.FormEvent) => {
+  const handleUpdateCountry = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingCountry || !editingCountry.nameAr.trim()) return;
+
+    try {
+      const updated = await api.updateCountry(editingCountry.id, {
+        nameAr: editingCountry.nameAr.trim(),
+        nameEn: editingCountry.nameEn?.trim() || '',
+        code: editingCountry.code.trim().toUpperCase()
+      });
+      setCountries(countries.map(c => c.id === editingCountry.id ? { ...c, ...updated } : c));
+      setEditingCountry(null);
+    } catch (err: any) {
+      alert(err.message || 'فشل تحديث بيانات الدولة');
+    }
+  };
+
+  // Dialect Handlers
+  const handleAddDialect = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newDialectName.trim() || !selectedCountryForDialect) return;
 
-    const newDialect: Dialect = {
-      id: `dia-${Date.now()}`,
+    const newDialectData = {
+      countryId: selectedCountryForDialect,
       name: newDialectName.trim(),
       code: newDialectName.trim().toLowerCase().replace(/\s+/g, '-'),
-      countryId: selectedCountryForDialect,
       description: newDialectDescription.trim()
     };
 
+    let savedDialect: Dialect = {
+      id: `dia-${Date.now()}`,
+      ...newDialectData
+    };
+
+    try {
+      const res = await api.createDialect(newDialectData);
+      if (res && res.id) savedDialect = res;
+    } catch {
+      // offline fallback
+    }
+
     setCountries(countries.map(c => {
       if (c.id === selectedCountryForDialect) {
-        return { ...c, dialects: [...c.dialects, newDialect] };
+        return { ...c, dialects: [...c.dialects, savedDialect] };
       }
       return c;
     }));
@@ -122,10 +371,35 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
     setIsAddDialectModalOpen(false);
   };
 
-  const [userActionError, setUserActionError] = useState<string | null>(null);
-  const [isSubmittingUser, setIsSubmittingUser] = useState(false);
+  const handleUpdateDialect = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingDialect || !editingDialect.dialect.name.trim()) return;
 
-  // Halaqah handler
+    const { countryId, dialect } = editingDialect;
+    try {
+      await api.updateDialect(dialect.id, {
+        name: dialect.name.trim(),
+        code: dialect.code,
+        description: dialect.description
+      });
+    } catch {
+      // fallback
+    }
+
+    setCountries(countries.map(c => {
+      if (c.id === countryId) {
+        return {
+          ...c,
+          dialects: c.dialects.map(d => d.id === dialect.id ? dialect : d)
+        };
+      }
+      return c;
+    }));
+
+    setEditingDialect(null);
+  };
+
+  // Halaqah Handlers
   const handleAddHalaqah = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newHalaqahName.trim()) return;
@@ -154,7 +428,20 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
     }
   };
 
-  // User handler
+  const handleUpdateHalaqah = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingHalaqah || !editingHalaqah.name.trim()) return;
+
+    try {
+      const updated = await api.updateHalaqah(editingHalaqah.id, editingHalaqah);
+      setHalaqat(halaqat.map(h => h.id === editingHalaqah.id ? { ...h, ...updated } : h));
+      setEditingHalaqah(null);
+    } catch (err: any) {
+      alert(err.message || 'فشل تحديث بيانات الحلقة');
+    }
+  };
+
+  // User Handlers
   const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault();
     setUserActionError(null);
@@ -215,7 +502,27 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
     }
   };
 
-  // ربط طالب موجود بحلقة محددة
+  const handleUpdateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingUser || !editingUser.name.trim() || !editingUser.phone.trim()) return;
+
+    try {
+      const updated = await api.updateUser(editingUser.id, {
+        name: editingUser.name.trim(),
+        phone: editingUser.phone.trim(),
+        email: editingUser.email?.trim(),
+        role: editingUser.role,
+        isActive: editingUser.isActive
+      });
+
+      setUsers(users.map(u => u.id === editingUser.id ? { ...u, ...updated } : u));
+      setEditingUser(null);
+    } catch (err: any) {
+      alert(err.message || 'فشل تعديل بيانات المستخدم');
+    }
+  };
+
+  // Quick Student Enrollment to Circle
   const handleEnrollExistingStudent = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedHalaqahForEnroll || !selectedStudentToEnroll) return;
@@ -237,7 +544,6 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
     }
   };
 
-  // إلغاء ربط طالب من حلقة
   const handleUnenrollStudent = async (enrollmentId: string, circleId: string, studentId: string) => {
     if (!confirm('هل أنت متأكد من رغبتك في إلغاء تسجيل هذا الطالب من الحلقة؟')) return;
 
@@ -258,14 +564,12 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
     if (!userToUpdate) return;
     const updatedStatus = !userToUpdate.isActive;
     
-    // Optimistic UI update
     setUsers(users.map(u => u.id === userId ? { ...u, isActive: updatedStatus } : u));
     
     try {
       await api.updateUser(userId, { isActive: updatedStatus });
     } catch (e) {
       console.error('Failed to update user status in DB', e);
-      // Revert if failed
       setUsers(users.map(u => u.id === userId ? { ...u, isActive: userToUpdate.isActive } : u));
     }
   };
@@ -282,7 +586,7 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
             </h2>
           </div>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            إدارة الدول واللهجات، حلقات التحفيظ، والمستخدمين مع ضبط أدوار الصلاحيات (RBAC)
+            إدارة وتعديل وحذف الدول واللهجات والحلقات والمستخدمين مع فحص محكم للتبعيات والروابط
           </p>
         </div>
 
@@ -297,7 +601,7 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
             }`}
           >
             <Globe className="w-4 h-4" />
-            <span>الدول واللهجات</span>
+            <span>الدول واللهجات ({countries.length})</span>
           </button>
 
           <button
@@ -363,44 +667,97 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
             {countries.map(country => (
               <div
                 key={country.id}
-                className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 shadow-xs space-y-3"
+                className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 shadow-xs space-y-4 relative group"
               >
+                {/* Header */}
                 <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
                   <div className="flex items-center gap-2.5">
                     <span className="font-mono bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 font-bold px-2 py-0.5 rounded text-xs">
                       {country.code}
                     </span>
-                    <h4 className="font-bold text-base text-slate-900 dark:text-white">
-                      {country.nameAr}
-                    </h4>
+                    <div>
+                      <h4 className="font-bold text-base text-slate-900 dark:text-white">
+                        {country.nameAr}
+                      </h4>
+                      {country.nameEn && (
+                        <span className="text-[11px] text-slate-400 font-mono block">{country.nameEn}</span>
+                      )}
+                    </div>
                   </div>
-                  <span className="text-xs text-slate-500">
-                    {country.dialects.length} لهجات مسجلة
-                  </span>
+
+                  {/* Actions for Country: Edit & Delete */}
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setEditingCountry(country)}
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+                      title="تعديل بيانات الدولة"
+                    >
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => requestDeleteCountry(country)}
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition"
+                      title="حذف الدولة (مع فحص التبعيات)"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
 
+                {/* Dialects list */}
                 <div className="space-y-2">
-                  <div className="text-xs font-semibold text-slate-600 dark:text-slate-400">
-                    اللهجات التابعة:
+                  <div className="flex items-center justify-between text-xs font-semibold text-slate-600 dark:text-slate-400">
+                    <span>اللهجات التابعة ({country.dialects.length}):</span>
+                    <button
+                      onClick={() => {
+                        setSelectedCountryForDialect(country.id);
+                        setIsAddDialectModalOpen(true);
+                      }}
+                      className="text-[11px] text-emerald-600 hover:underline flex items-center gap-1"
+                    >
+                      <Plus className="w-3 h-3" />
+                      <span>إضافة لهجة</span>
+                    </button>
                   </div>
+
                   <div className="flex flex-wrap gap-2">
                     {country.dialects.map(d => (
                       <div
                         key={d.id}
-                        className="bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl p-2 text-xs flex flex-col gap-0.5"
+                        className="bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl p-2 text-xs flex items-center justify-between gap-3 group/dialect"
                       >
-                        <span className="font-bold text-slate-800 dark:text-slate-200">
-                          {d.name}
-                        </span>
-                        {d.description && (
-                          <span className="text-[10px] text-slate-500 dark:text-slate-400">
-                            {d.description}
+                        <div className="flex flex-col">
+                          <span className="font-bold text-slate-800 dark:text-slate-200">
+                            {d.name}
                           </span>
-                        )}
+                          {d.description && (
+                            <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                              {d.description}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Dialect Actions */}
+                        <div className="flex items-center gap-0.5 opacity-80 group-hover/dialect:opacity-100">
+                          <button
+                            onClick={() => setEditingDialect({ countryId: country.id, dialect: d })}
+                            className="p-1 text-slate-400 hover:text-emerald-600 rounded transition"
+                            title="تعديل اللهجة"
+                          >
+                            <Edit2 className="w-3 h-3" />
+                          </button>
+                          <button
+                            onClick={() => requestDeleteDialect(country.id, d)}
+                            className="p-1 text-slate-400 hover:text-rose-600 rounded transition"
+                            title="حذف اللهجة (مع فحص التبعيات)"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
                       </div>
                     ))}
                     {country.dialects.length === 0 && (
-                      <span className="text-xs text-slate-400">لا توجد لهجات مسجلة بعد</span>
+                      <span className="text-xs text-slate-400 italic">لا توجد لهجات مسجلة بعد</span>
                     )}
                   </div>
                 </div>
@@ -422,7 +779,7 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
                 <span>قائمة الحلقات القرآنية وتوزيع الطلاب</span>
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                يمكنك من هنا معرفة الطلاب المنتمين لكل حلقة وإضافة طلاب جدد للحلقة مباشرة.
+                يمكنك من هنا تعديل مواعيد ومستهدفات الحلقات، حذف الحلقات بعد التأكد من خلوها من الطلاب، وتنسيب الطلاب.
               </p>
             </div>
 
@@ -448,6 +805,7 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
               const circleEnrollments = enrollments.filter(e => e.circleId === h.id);
               const circleStudentIds = circleEnrollments.map(e => e.studentId);
               const enrolledStudents = students.filter(s => circleStudentIds.includes(s.id));
+              const circleSessionsCount = sessions.filter(s => s.circleId === h.id).length;
 
               return (
                 <div
@@ -457,19 +815,37 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
                   <div className="flex items-start justify-between">
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                        <span className={`w-2.5 h-2.5 rounded-full ${h.isActive ? 'bg-emerald-500' : 'bg-slate-400'}`}></span>
                         <h4 className="font-bold text-base text-slate-900 dark:text-white">
                           {h.name}
                         </h4>
                       </div>
                       <span className="text-[11px] font-mono text-slate-400 mt-0.5 block">
-                        {h.code} • المستوى: {h.level}
+                        {h.code} • المستوى: {h.level} • {circleSessionsCount} جلسة موثقة
                       </span>
                     </div>
 
-                    <span className="bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 px-2.5 py-1 rounded-lg text-xs font-bold border border-emerald-200 dark:border-emerald-800">
-                      مستهدف: {h.targetJuz} أجزاء
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 px-2.5 py-1 rounded-lg text-xs font-bold border border-emerald-200 dark:border-emerald-800">
+                        مستهدف: {h.targetJuz} أجزاء
+                      </span>
+
+                      <button
+                        onClick={() => setEditingHalaqah(h)}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+                        title="تعديل بيانات الحلقة"
+                      >
+                        <Edit2 className="w-4 h-4" />
+                      </button>
+
+                      <button
+                        onClick={() => requestDeleteHalaqah(h)}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition"
+                        title="حذف الحلقة (مع فحص التبعيات)"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
 
                   <div className="bg-slate-50 dark:bg-slate-800/60 rounded-xl p-3 space-y-2 text-xs">
@@ -488,7 +864,7 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
                     <div className="flex justify-between">
                       <span className="text-slate-500">مواعيد الحلقة:</span>
                       <span className="font-medium text-slate-700 dark:text-slate-300">
-                        {h.scheduleDays.join(' - ')} ({h.timeSlot})
+                        {h.scheduleDays?.join(' - ') || 'الأحد - الثلاثاء - الخميس'} ({h.timeSlot})
                       </span>
                     </div>
                   </div>
@@ -593,10 +969,9 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {users.map(u => {
-                    const country = countries.find(c => c.id === u.countryId);
+                    const country = countries.find(c => c.id === u.countryId || c.code === u.countryId);
                     const dialect = country?.dialects.find(d => d.id === u.dialectId);
 
-                    // البحث عن الحلقة المرتبطة
                     const studentEnrs = enrollments.filter(e => e.studentId === u.id);
                     const studentHalaqatNames = studentEnrs
                       .map(e => halaqat.find(h => h.id === e.circleId)?.name)
@@ -652,12 +1027,30 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
                           </span>
                         </td>
                         <td className="p-3">
-                          <button
-                            onClick={() => toggleUserStatus(u.id)}
-                            className="text-xs font-bold text-slate-600 dark:text-slate-300 hover:text-emerald-600 transition"
-                          >
-                            {u.isActive ? 'تعطيل الحساب' : 'تفعيل'}
-                          </button>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => setEditingUser(u)}
+                              className="p-1 text-slate-500 hover:text-emerald-600 rounded transition"
+                              title="تعديل بيانات المستخدم"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+
+                            <button
+                              onClick={() => toggleUserStatus(u.id)}
+                              className="text-[11px] font-bold text-slate-600 dark:text-slate-300 hover:text-emerald-600 transition"
+                            >
+                              {u.isActive ? 'تعطيل' : 'تفعيل'}
+                            </button>
+
+                            <button
+                              onClick={() => requestDeleteUser(u)}
+                              className="p-1 text-slate-400 hover:text-rose-600 rounded transition"
+                              title="حذف المستخدم (مع فحص التبعيات)"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -670,7 +1063,378 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
       )}
 
       {/* ─────────────────────────────────────────────────────────────
-          MODALS
+          GLOBAL DELETE VALIDATION & CONFIRMATION MODAL
+      ───────────────────────────────────────────────────────────── */}
+      {deleteDialog.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 max-w-lg w-full space-y-5 shadow-2xl text-right">
+            
+            {/* Header */}
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-3">
+                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${
+                  deleteDialog.isBlocked 
+                    ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-600' 
+                    : 'bg-rose-100 dark:bg-rose-950/60 text-rose-600'
+                }`}>
+                  {deleteDialog.isBlocked ? (
+                    <AlertTriangle className="w-6 h-6" />
+                  ) : (
+                    <Trash2 className="w-6 h-6" />
+                  )}
+                </div>
+                <div>
+                  <h4 className="font-bold text-base text-slate-900 dark:text-white">
+                    {deleteDialog.isBlocked ? 'تعذر الحذف لوجود بيانات مرتبطة' : 'تأكيد الحذف النهائي'}
+                  </h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    العنصر المحدد: <strong className="text-slate-800 dark:text-slate-200">{deleteDialog.name}</strong>
+                  </p>
+                </div>
+              </div>
+
+              <button 
+                onClick={() => setDeleteDialog(prev => ({ ...prev, isOpen: false }))}
+                className="text-slate-400 hover:text-slate-600 p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Content Details */}
+            {deleteDialog.isBlocked ? (
+              <div className="space-y-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/50 rounded-2xl p-4 text-xs">
+                <div className="flex items-center gap-2 font-bold text-amber-800 dark:text-amber-300">
+                  <Info className="w-4 h-4 shrink-0" />
+                  <span>لا يمكن حذف هذا العنصر حالياً للأسباب التالية:</span>
+                </div>
+                <ul className="list-disc list-inside space-y-1.5 text-amber-900 dark:text-amber-200 pr-1 leading-relaxed">
+                  {deleteDialog.blockReasons.map((reason, idx) => (
+                    <li key={idx}>{reason}</li>
+                  ))}
+                </ul>
+                <p className="text-[11px] text-amber-700 dark:text-amber-400 font-medium pt-1 border-t border-amber-200 dark:border-amber-900/50">
+                  💡 لحذف هذا السجل بأمان، يرجى تعديل أو نقل السجلات التابعة له أولاً.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 rounded-2xl p-4 text-xs">
+                <div className="flex items-center gap-2 font-bold text-rose-800 dark:text-rose-300">
+                  <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>تم فحص السجل: لا توجد أية بيانات مرتبطة تمنع الحذف.</span>
+                </div>
+                <p className="text-rose-700 dark:text-rose-300 leading-relaxed">
+                  هل أنت متأكد من رغبتك في حذف ({deleteDialog.name}) نهائياً من قاعدة بيانات النظام؟ هذا الإجراء لا يمكن التراجع عنه.
+                </p>
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setDeleteDialog(prev => ({ ...prev, isOpen: false }))}
+                className="px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300 text-xs font-bold transition"
+              >
+                {deleteDialog.isBlocked ? 'إغلاق وفهمت ذلك' : 'إلغاء'}
+              </button>
+
+              {!deleteDialog.isBlocked && (
+                <button
+                  type="button"
+                  onClick={handleExecuteDelete}
+                  disabled={isDeleting}
+                  className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-xs font-bold transition shadow-lg shadow-rose-600/20"
+                >
+                  {isDeleting ? 'جاري الحذف...' : 'تأكيد الحذف نهائياً'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────
+          EDIT MODAL: COUNTRY (تعديل الدولة)
+      ───────────────────────────────────────────────────────────── */}
+      {editingCountry && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <form onSubmit={handleUpdateCountry} className="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-200 dark:border-slate-800 max-w-md w-full space-y-4 shadow-xl text-right">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <h4 className="font-bold text-sm">تعديل بيانات الدولة</h4>
+              <button type="button" onClick={() => setEditingCountry(null)}><X className="w-4 h-4" /></button>
+            </div>
+            <div>
+              <label className="text-xs font-semibold block mb-1">اسم الدولة بالعربية:</label>
+              <input
+                type="text"
+                required
+                value={editingCountry.nameAr}
+                onChange={e => setEditingCountry({ ...editingCountry, nameAr: e.target.value })}
+                className="w-full bg-slate-50 dark:bg-slate-800 border rounded-xl p-2.5 text-xs outline-none"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-semibold block mb-1">الاسم بالإنجليزية:</label>
+              <input
+                type="text"
+                value={editingCountry.nameEn || ''}
+                onChange={e => setEditingCountry({ ...editingCountry, nameEn: e.target.value })}
+                className="w-full bg-slate-50 dark:bg-slate-800 border rounded-xl p-2.5 text-xs outline-none"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-semibold block mb-1">رمز الدولة (Code):</label>
+              <input
+                type="text"
+                required
+                value={editingCountry.code}
+                onChange={e => setEditingCountry({ ...editingCountry, code: e.target.value })}
+                className="w-full bg-slate-50 dark:bg-slate-800 border rounded-xl p-2.5 text-xs font-mono outline-none"
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button type="button" onClick={() => setEditingCountry(null)} className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-bold">إلغاء</button>
+              <button type="submit" className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold">حفظ التعديلات</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────
+          EDIT MODAL: DIALECT (تعديل اللهجة)
+      ───────────────────────────────────────────────────────────── */}
+      {editingDialect && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <form onSubmit={handleUpdateDialect} className="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-200 dark:border-slate-800 max-w-md w-full space-y-4 shadow-xl text-right">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <h4 className="font-bold text-sm">تعديل بيانات اللهجة</h4>
+              <button type="button" onClick={() => setEditingDialect(null)}><X className="w-4 h-4" /></button>
+            </div>
+            <div>
+              <label className="text-xs font-semibold block mb-1">اسم اللهجة:</label>
+              <input
+                type="text"
+                required
+                value={editingDialect.dialect.name}
+                onChange={e => setEditingDialect({
+                  ...editingDialect,
+                  dialect: { ...editingDialect.dialect, name: e.target.value }
+                })}
+                className="w-full bg-slate-50 dark:bg-slate-800 border rounded-xl p-2.5 text-xs outline-none"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-semibold block mb-1">الوصف أو النطاق:</label>
+              <input
+                type="text"
+                value={editingDialect.dialect.description || ''}
+                onChange={e => setEditingDialect({
+                  ...editingDialect,
+                  dialect: { ...editingDialect.dialect, description: e.target.value }
+                })}
+                className="w-full bg-slate-50 dark:bg-slate-800 border rounded-xl p-2.5 text-xs outline-none"
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button type="button" onClick={() => setEditingDialect(null)} className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-bold">إلغاء</button>
+              <button type="submit" className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold">حفظ التعديلات</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────
+          EDIT MODAL: HALAQAH (تعديل الحلقة)
+      ───────────────────────────────────────────────────────────── */}
+      {editingHalaqah && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <form onSubmit={handleUpdateHalaqah} className="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-200 dark:border-slate-800 max-w-lg w-full space-y-4 shadow-xl text-right">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <h4 className="font-bold text-sm">تعديل بيانات الحلقة القرآنية</h4>
+              <button type="button" onClick={() => setEditingHalaqah(null)}><X className="w-4 h-4" /></button>
+            </div>
+            <div>
+              <label className="text-xs font-semibold block mb-1">اسم الحلقة:</label>
+              <input
+                type="text"
+                required
+                value={editingHalaqah.name}
+                onChange={e => setEditingHalaqah({ ...editingHalaqah, name: e.target.value })}
+                className="w-full bg-slate-50 dark:bg-slate-800 border rounded-xl p-2.5 text-xs outline-none"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-semibold block mb-1">المعلم المسؤول:</label>
+                <select
+                  value={editingHalaqah.teacherId}
+                  onChange={e => setEditingHalaqah({ ...editingHalaqah, teacherId: e.target.value })}
+                  className="w-full bg-slate-50 dark:bg-slate-800 border rounded-xl p-2.5 text-xs outline-none"
+                >
+                  {teachers.map(t => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold block mb-1">المشرف المتابع:</label>
+                <select
+                  value={editingHalaqah.supervisorId}
+                  onChange={e => setEditingHalaqah({ ...editingHalaqah, supervisorId: e.target.value })}
+                  className="w-full bg-slate-50 dark:bg-slate-800 border rounded-xl p-2.5 text-xs outline-none"
+                >
+                  {supervisors.map(s => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-semibold block mb-1">المستوى:</label>
+                <select
+                  value={editingHalaqah.level}
+                  onChange={e => setEditingHalaqah({ ...editingHalaqah, level: e.target.value as any })}
+                  className="w-full bg-slate-50 dark:bg-slate-800 border rounded-xl p-2.5 text-xs outline-none"
+                >
+                  <option value="مبتدئ">مبتدئ</option>
+                  <option value="متوسط">متوسط</option>
+                  <option value="متقدم">متقدم</option>
+                  <option value="إجازة وإتقان">إجازة وإتقان</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold block mb-1">مستهدف الأجزاء:</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={30}
+                  value={editingHalaqah.targetJuz}
+                  onChange={e => setEditingHalaqah({ ...editingHalaqah, targetJuz: Number(e.target.value) })}
+                  className="w-full bg-slate-50 dark:bg-slate-800 border rounded-xl p-2.5 text-xs outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-semibold block mb-1">وقت الحلقة:</label>
+                <input
+                  type="text"
+                  value={editingHalaqah.timeSlot}
+                  onChange={e => setEditingHalaqah({ ...editingHalaqah, timeSlot: e.target.value })}
+                  className="w-full bg-slate-50 dark:bg-slate-800 border rounded-xl p-2.5 text-xs outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold block mb-1">الحد الأقصى للطلاب:</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={50}
+                  value={editingHalaqah.maxStudents}
+                  onChange={e => setEditingHalaqah({ ...editingHalaqah, maxStudents: Number(e.target.value) })}
+                  className="w-full bg-slate-50 dark:bg-slate-800 border rounded-xl p-2.5 text-xs outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button type="button" onClick={() => setEditingHalaqah(null)} className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-bold">إلغاء</button>
+              <button type="submit" className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold">حفظ التعديلات</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────
+          EDIT MODAL: USER (تعديل المستخدم)
+      ───────────────────────────────────────────────────────────── */}
+      {editingUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <form onSubmit={handleUpdateUser} className="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-200 dark:border-slate-800 max-w-lg w-full space-y-4 shadow-xl text-right">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <h4 className="font-bold text-sm">تعديل بيانات المستخدم والدور</h4>
+              <button type="button" onClick={() => setEditingUser(null)}><X className="w-4 h-4" /></button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-semibold block mb-1">الاسم:</label>
+                <input
+                  type="text"
+                  required
+                  value={editingUser.name}
+                  onChange={e => setEditingUser({ ...editingUser, name: e.target.value })}
+                  className="w-full bg-slate-50 dark:bg-slate-800 border rounded-xl p-2.5 text-xs outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold block mb-1">رقم الهاتف:</label>
+                <input
+                  type="text"
+                  required
+                  value={editingUser.phone}
+                  onChange={e => setEditingUser({ ...editingUser, phone: e.target.value })}
+                  className="w-full bg-slate-50 dark:bg-slate-800 border rounded-xl p-2.5 text-xs outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-semibold block mb-1">الدور (Role):</label>
+                <select
+                  value={editingUser.role}
+                  onChange={e => setEditingUser({ ...editingUser, role: e.target.value as UserRole })}
+                  className="w-full bg-slate-50 dark:bg-slate-800 border rounded-xl p-2.5 text-xs font-bold outline-none"
+                >
+                  <option value="STUDENT">طالب (Student)</option>
+                  <option value="TEACHER">معلم (Teacher)</option>
+                  <option value="SUPERVISOR">مشرف (Supervisor)</option>
+                  <option value="ADMIN">مدير النظام (Admin)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold block mb-1">البريد الإلكتروني:</label>
+                <input
+                  type="email"
+                  value={editingUser.email || ''}
+                  onChange={e => setEditingUser({ ...editingUser, email: e.target.value })}
+                  className="w-full bg-slate-50 dark:bg-slate-800 border rounded-xl p-2.5 text-xs outline-none"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold block mb-1">حالة الحساب:</label>
+              <select
+                value={editingUser.isActive ? 'ACTIVE' : 'INACTIVE'}
+                onChange={e => setEditingUser({ ...editingUser, isActive: e.target.value === 'ACTIVE' })}
+                className="w-full bg-slate-50 dark:bg-slate-800 border rounded-xl p-2.5 text-xs font-bold outline-none"
+              >
+                <option value="ACTIVE">نشط (مفعل)</option>
+                <option value="INACTIVE">معطل</option>
+              </select>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button type="button" onClick={() => setEditingUser(null)} className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-bold">إلغاء</button>
+              <button type="submit" className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold">حفظ التعديلات</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────
+          ADD MODALS
       ───────────────────────────────────────────────────────────── */}
 
       {/* 1. Modal تسجيل طالب في حلقة */}

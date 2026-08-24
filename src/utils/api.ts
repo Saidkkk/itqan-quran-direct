@@ -33,10 +33,60 @@ export const api = {
     return await res.json();
   },
 
+  async updateCountry(id: string, country: Partial<Country>): Promise<Country> {
+    const res = await fetch(`${API_BASE}/countries/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(country),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Failed to update country' }));
+      throw new Error(err.error || 'خطأ أثناء تحديث بيانات الدولة');
+    }
+    return await res.json();
+  },
+
   async deleteCountry(id: string): Promise<boolean> {
     const res = await fetch(`${API_BASE}/countries/${id}`, { method: 'DELETE' });
     if (!res.ok) {
-      throw new Error('فشل حذف الدولة');
+      const err = await res.json().catch(() => ({ error: 'Failed to delete country' }));
+      throw new Error(err.error || 'فشل حذف الدولة');
+    }
+    return true;
+  },
+
+  // Dialects
+  async createDialect(dialect: { countryId: string; name: string; code?: string; description?: string }): Promise<any> {
+    const res = await fetch(`${API_BASE}/dialects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(dialect),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Failed to create dialect' }));
+      throw new Error(err.error || 'فشل حفظ اللهجة');
+    }
+    return await res.json();
+  },
+
+  async updateDialect(id: string, updates: { name?: string; code?: string; description?: string }): Promise<any> {
+    const res = await fetch(`${API_BASE}/dialects/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Failed to update dialect' }));
+      throw new Error(err.error || 'فشل تعديل بيانات اللهجة');
+    }
+    return await res.json();
+  },
+
+  async deleteDialect(id: string): Promise<boolean> {
+    const res = await fetch(`${API_BASE}/dialects/${id}`, { method: 'DELETE' });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Failed to delete dialect' }));
+      throw new Error(err.error || 'فشل حذف اللهجة');
     }
     return true;
   },
@@ -119,6 +169,30 @@ export const api = {
       throw new Error(errData.error || 'فشل حفظ الحلقة في PostgreSQL');
     }
     return await res.json();
+  },
+
+  async updateHalaqah(id: string, updates: Partial<Halaqah>): Promise<Halaqah> {
+    const res = await fetch(`${API_BASE}/halaqat/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({ error: 'فشل تحديث بيانات الحلقة' }));
+      throw new Error(errData.error || 'فشل تحديث الحلقة في PostgreSQL');
+    }
+    return await res.json();
+  },
+
+  async deleteHalaqah(id: string): Promise<boolean> {
+    const res = await fetch(`${API_BASE}/halaqat/${id}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({ error: 'فشل حذف الحلقة' }));
+      throw new Error(errData.error || 'فشل حذف الحلقة من PostgreSQL');
+    }
+    return true;
   },
 
   // Enrollments (ربط الطلاب بالحلقات)

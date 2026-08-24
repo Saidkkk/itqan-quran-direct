@@ -326,12 +326,95 @@ app.post('/api/v1/countries', async (req: Request, res: Response) => {
   }
 });
 
+// تحديث دولة
+app.put('/api/v1/countries/:id', async (req: Request, res: Response) => {
+  if (!pool) return res.status(500).json({ error: 'Database not connected' });
+  const { id } = req.params;
+  const { nameAr, nameEn, code } = req.body;
+
+  try {
+    const result = await pool.query(
+      `UPDATE ${SCHEMA}.countries
+       SET name_ar = COALESCE($1, name_ar),
+           name_en = COALESCE($2, name_en),
+           code = COALESCE($3, code)
+       WHERE id = $4
+       RETURNING id, name_ar AS "nameAr", name_en AS "nameEn", code;`,
+      [nameAr, nameEn, code, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'الدولة غير موجودة' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // حذف دولة
 app.delete('/api/v1/countries/:id', async (req: Request, res: Response) => {
   if (!pool) return res.status(500).json({ error: 'Database not connected' });
   try {
     await pool.query(`DELETE FROM ${SCHEMA}.countries WHERE id = $1`, [req.params.id]);
-    res.json({ success: true, message: 'Country deleted' });
+    res.json({ success: true, message: 'تم حذف الدولة بنجاح' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// إضافة لهجة جديدة
+app.post('/api/v1/dialects', async (req: Request, res: Response) => {
+  if (!pool) return res.status(500).json({ error: 'Database not connected' });
+  const { countryId, name, code, description } = req.body;
+
+  try {
+    const result = await pool.query(
+      `INSERT INTO ${SCHEMA}.dialects (country_id, name, code, description)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, country_id AS "countryId", name, code, description;`,
+      [countryId, name, code || name.toLowerCase().replace(/\s+/g, '-'), description || '']
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// تعديل لهجة
+app.put('/api/v1/dialects/:id', async (req: Request, res: Response) => {
+  if (!pool) return res.status(500).json({ error: 'Database not connected' });
+  const { id } = req.params;
+  const { name, code, description } = req.body;
+
+  try {
+    const result = await pool.query(
+      `UPDATE ${SCHEMA}.dialects
+       SET name = COALESCE($1, name),
+           code = COALESCE($2, code),
+           description = COALESCE($3, description)
+       WHERE id = $4
+       RETURNING id, country_id AS "countryId", name, code, description;`,
+      [name, code, description, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'اللهجة غير موجودة' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// حذف لهجة
+app.delete('/api/v1/dialects/:id', async (req: Request, res: Response) => {
+  if (!pool) return res.status(500).json({ error: 'Database not connected' });
+  try {
+    await pool.query(`DELETE FROM ${SCHEMA}.dialects WHERE id = $1`, [req.params.id]);
+    res.json({ success: true, message: 'تم حذف اللهجة بنجاح' });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -580,6 +663,56 @@ app.post('/api/v1/halaqat', async (req: Request, res: Response) => {
     res.status(201).json(result.rows[0]);
   } catch (err: any) {
     console.error('Error creating halaqah:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// تحديث حلقة
+app.put('/api/v1/halaqat/:id', async (req: Request, res: Response) => {
+  if (!pool) return res.status(500).json({ error: 'Database not connected' });
+  const { id } = req.params;
+  const { name, code, teacherId, supervisorId, targetJuz, level, scheduleDays, timeSlot, maxStudents, isActive } = req.body;
+
+  try {
+    const result = await pool.query(
+      `UPDATE ${SCHEMA}.halaqat
+       SET name = COALESCE($1, name),
+           code = COALESCE($2, code),
+           teacher_id = COALESCE($3, teacher_id),
+           supervisor_id = COALESCE($4, supervisor_id),
+           target_juz = COALESCE($5, target_juz),
+           level = COALESCE($6, level),
+           schedule_days = COALESCE($7, schedule_days),
+           time_slot = COALESCE($8, time_slot),
+           max_students = COALESCE($9, max_students),
+           is_active = COALESCE($10, is_active)
+       WHERE id = $11
+       RETURNING id, name, code, teacher_id AS "teacherId", supervisor_id AS "supervisorId",
+                 target_juz AS "targetJuz", level, schedule_days AS "scheduleDays",
+                 time_slot AS "timeSlot", max_students AS "maxStudents", is_active AS "isActive",
+                 created_at AS "createdAt";`,
+      [name, code, teacherId || null, supervisorId || null, targetJuz, level, scheduleDays, timeSlot, maxStudents, isActive, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'الحلقة غير موجودة' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// حذف حلقة
+app.delete('/api/v1/halaqat/:id', async (req: Request, res: Response) => {
+  if (!pool) return res.status(500).json({ error: 'Database not connected' });
+  const { id } = req.params;
+
+  try {
+    await pool.query(`DELETE FROM ${SCHEMA}.halaqat WHERE id = $1;`, [id]);
+    res.json({ success: true, message: 'تم حذف الحلقة بنجاح' });
+  } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });

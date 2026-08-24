@@ -281,6 +281,7 @@ export default function App() {
             setUsers={setUsers}
             enrollments={enrollments}
             setEnrollments={setEnrollments}
+            sessions={sessions}
           />
         )}
 
