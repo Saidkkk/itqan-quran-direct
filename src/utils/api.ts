@@ -1,4 +1,4 @@
-import { Country, User, Halaqah, HalaqahSession } from '../types';
+import { Country, User, Halaqah, HalaqahSession, StudentEnrollment } from '../types';
 import { INITIAL_COUNTRIES, INITIAL_USERS, INITIAL_HALAQAT, INITIAL_SESSIONS } from '../data/mockData';
 
 // API Base URL
@@ -119,6 +119,42 @@ export const api = {
       throw new Error(errData.error || 'فشل حفظ الحلقة في PostgreSQL');
     }
     return await res.json();
+  },
+
+  // Enrollments (ربط الطلاب بالحلقات)
+  async getEnrollments(): Promise<StudentEnrollment[]> {
+    try {
+      const res = await fetch(`${API_BASE}/enrollments`);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data) && data.length > 0) return data;
+      }
+    } catch (e) {
+      console.warn('API fetch enrollments failed', e);
+    }
+    const local = localStorage.getItem('itqan_enrollments_v2');
+    return local ? JSON.parse(local) : [];
+  },
+
+  async createEnrollment(enrollment: { circleId: string; studentId: string; status?: string }): Promise<StudentEnrollment> {
+    const res = await fetch(`${API_BASE}/enrollments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(enrollment),
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({ error: 'فشل ربط الطالب بالحلقة' }));
+      throw new Error(errData.error || 'فشل تسجيل الطالب في الحلقة');
+    }
+    return await res.json();
+  },
+
+  async deleteEnrollment(id: string): Promise<boolean> {
+    const res = await fetch(`${API_BASE}/enrollments/${id}`, { method: 'DELETE' });
+    if (!res.ok) {
+      throw new Error('فشل إلغاء ربط الطالب بالحلقة');
+    }
+    return true;
   },
 
   // Sessions

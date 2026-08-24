@@ -139,6 +139,20 @@ async function initDatabaseSchema() {
       );
     `);
 
+    // جدول تسجيل وربط الطلاب بالحلقات (Student Enrollments)
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS ${SCHEMA}.student_enrollments (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        circle_id UUID NOT NULL REFERENCES ${SCHEMA}.halaqat(id) ON DELETE CASCADE,
+        student_id UUID NOT NULL REFERENCES ${SCHEMA}.users(id) ON DELETE CASCADE,
+        status VARCHAR(20) DEFAULT 'ACTIVE',
+        enrolled_at DATE DEFAULT CURRENT_DATE,
+        CONSTRAINT uq_student_circle UNIQUE (student_id, circle_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_enrollments_circle ON ${SCHEMA}.student_enrollments(circle_id);
+      CREATE INDEX IF NOT EXISTS idx_enrollments_student ON ${SCHEMA}.student_enrollments(student_id);
+    `);
+
     // 1. بذر بيانات الدول الأساسية
     await pool.query(`
       INSERT INTO ${SCHEMA}.countries (name_ar, name_en, code)
@@ -566,6 +580,52 @@ app.post('/api/v1/halaqat', async (req: Request, res: Response) => {
     res.status(201).json(result.rows[0]);
   } catch (err: any) {
     console.error('Error creating halaqah:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// مسارات ربط وتسجيل الطلاب بالحلقات (Student Enrollments API)
+app.get('/api/v1/enrollments', async (req: Request, res: Response) => {
+  if (!pool) return res.json([]);
+  try {
+    const result = await pool.query(
+      `SELECT id, circle_id AS "circleId", student_id AS "studentId", 
+              status, enrolled_at AS "enrolledAt"
+       FROM ${SCHEMA}.student_enrollments
+       ORDER BY enrolled_at DESC;`
+    );
+    res.json(result.rows);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/v1/enrollments', async (req: Request, res: Response) => {
+  if (!pool) return res.status(500).json({ error: 'Database not connected' });
+  const { circleId, studentId, status } = req.body;
+
+  try {
+    const result = await pool.query(
+      `INSERT INTO ${SCHEMA}.student_enrollments (circle_id, student_id, status)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (student_id, circle_id) DO UPDATE SET status = EXCLUDED.status
+       RETURNING id, circle_id AS "circleId", student_id AS "studentId", status, enrolled_at AS "enrolledAt";`,
+      [circleId, studentId, status || 'ACTIVE']
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/v1/enrollments/:id', async (req: Request, res: Response) => {
+  if (!pool) return res.status(500).json({ error: 'Database not connected' });
+  const { id } = req.params;
+
+  try {
+    await pool.query(`DELETE FROM ${SCHEMA}.student_enrollments WHERE id = $1;`, [id]);
+    res.json({ success: true, message: 'تم إلغاء تسجيل الطالب من الحلقة' });
+  } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });

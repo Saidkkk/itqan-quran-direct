@@ -13,7 +13,7 @@ import {
   Edit2,
   Sparkles
 } from 'lucide-react';
-import { Country, Dialect, Halaqah, User, UserRole } from '../types';
+import { Country, Dialect, Halaqah, StudentEnrollment, User, UserRole } from '../types';
 import { api } from '../utils/api';
 
 interface AdminManagementProps {
@@ -23,6 +23,8 @@ interface AdminManagementProps {
   setHalaqat: (halaqat: Halaqah[]) => void;
   users: User[];
   setUsers: (users: User[]) => void;
+  enrollments?: StudentEnrollment[];
+  setEnrollments?: (enrollments: StudentEnrollment[]) => void;
 }
 
 export const AdminManagement: React.FC<AdminManagementProps> = ({
@@ -31,9 +33,11 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
   halaqat,
   setHalaqat,
   users,
-  setUsers
+  setUsers,
+  enrollments = [],
+  setEnrollments
 }) => {
-  const [activeTab, setActiveTab] = useState<'DEFINITIONS' | 'HALAQAT' | 'USERS'>('DEFINITIONS');
+  const [activeTab, setActiveTab] = useState<'DEFINITIONS' | 'HALAQAT' | 'USERS'>('HALAQAT');
 
   // Country / Dialect Modal State
   const [isAddCountryModalOpen, setIsAddCountryModalOpen] = useState(false);
@@ -64,9 +68,16 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
   const [newUserDialectId, setNewUserDialectId] = useState(countries[0]?.dialects[0]?.id || '');
   const [newUserSupervisorId, setNewUserSupervisorId] = useState('');
   const [newUserTeacherId, setNewUserTeacherId] = useState('');
+  const [newUserHalaqahId, setNewUserHalaqahId] = useState(halaqat[0]?.id || '');
+
+  // Quick Student Enrollment Modal State (from Halaqah Card)
+  const [isEnrollModalOpen, setIsEnrollModalOpen] = useState(false);
+  const [selectedHalaqahForEnroll, setSelectedHalaqahForEnroll] = useState<Halaqah | null>(null);
+  const [selectedStudentToEnroll, setSelectedStudentToEnroll] = useState<string>('');
 
   const teachers = users.filter(u => u.role === 'TEACHER');
   const supervisors = users.filter(u => u.role === 'SUPERVISOR');
+  const students = users.filter(u => u.role === 'STUDENT');
 
   // Country / Dialect handlers
   const handleAddCountry = async (e: React.FormEvent) => {
@@ -154,6 +165,10 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
 
     setIsSubmittingUser(true);
     try {
+      const targetTeacherId = newUserRole === 'STUDENT'
+        ? (halaqat.find(h => h.id === newUserHalaqahId)?.teacherId || newUserTeacherId || teachers[0]?.id)
+        : undefined;
+
       const payload = {
         name: newUserName.trim(),
         email: newUserEmail.trim() || `${Date.now()}@itqan-quran.org`,
@@ -162,7 +177,7 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
         countryId: newUserCountryId || countries[0]?.id || '',
         dialectId: newUserDialectId || '',
         supervisorId: newUserRole === 'TEACHER' ? (newUserSupervisorId || supervisors[0]?.id) : undefined,
-        teacherId: newUserRole === 'STUDENT' ? (newUserTeacherId || teachers[0]?.id) : undefined,
+        teacherId: targetTeacherId,
         isActive: true,
         createdAt: new Date().toISOString().split('T')[0],
         currentJuz: newUserRole === 'STUDENT' ? 30 : undefined,
@@ -170,6 +185,21 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
       };
 
       const savedUser = await api.createUser(payload);
+
+      // ربط الطالب بالحلقة المختارة فوراً
+      if (newUserRole === 'STUDENT' && newUserHalaqahId && setEnrollments) {
+        try {
+          const newEnrollment = await api.createEnrollment({
+            circleId: newUserHalaqahId,
+            studentId: savedUser.id,
+            status: 'ACTIVE'
+          });
+          setEnrollments([...enrollments, newEnrollment]);
+        } catch (enrErr) {
+          console.warn('Auto enrollment error:', enrErr);
+        }
+      }
+
       // تحديث القائمة فورياً من قاعدة البيانات
       const refreshedUsers = await api.getUsers();
       setUsers(refreshedUsers.length ? refreshedUsers : [...users, savedUser]);
@@ -182,6 +212,44 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
       setUserActionError(err.message || 'فشل حفظ المستخدم في قاعدة البيانات');
     } finally {
       setIsSubmittingUser(false);
+    }
+  };
+
+  // ربط طالب موجود بحلقة محددة
+  const handleEnrollExistingStudent = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedHalaqahForEnroll || !selectedStudentToEnroll) return;
+
+    try {
+      const newEnr = await api.createEnrollment({
+        circleId: selectedHalaqahForEnroll.id,
+        studentId: selectedStudentToEnroll,
+        status: 'ACTIVE'
+      });
+
+      if (setEnrollments) {
+        setEnrollments([...enrollments.filter(x => !(x.circleId === selectedHalaqahForEnroll.id && x.studentId === selectedStudentToEnroll)), newEnr]);
+      }
+      setIsEnrollModalOpen(false);
+      setSelectedStudentToEnroll('');
+    } catch (err: any) {
+      alert(err.message || 'حدث خطأ أثناء تسجيل الطالب في الحلقة');
+    }
+  };
+
+  // إلغاء ربط طالب من حلقة
+  const handleUnenrollStudent = async (enrollmentId: string, circleId: string, studentId: string) => {
+    if (!confirm('هل أنت متأكد من رغبتك في إلغاء تسجيل هذا الطالب من الحلقة؟')) return;
+
+    try {
+      if (enrollmentId) {
+        await api.deleteEnrollment(enrollmentId);
+      }
+      if (setEnrollments) {
+        setEnrollments(enrollments.filter(e => !(e.circleId === circleId && e.studentId === studentId)));
+      }
+    } catch (err: any) {
+      alert(err.message || 'فشل إلغاء التسجيل');
     }
   };
 
@@ -343,15 +411,20 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
       )}
 
       {/* ─────────────────────────────────────────────────────────────
-          TAB 2: إدارة الحلقات (Halaqat)
+          TAB 2: إدارة الحلقات القرآنية وتنسيب الطلاب
       ───────────────────────────────────────────────────────────── */}
       {activeTab === 'HALAQAT' && (
         <div className="space-y-6 animate-in fade-in duration-150">
           <div className="flex items-center justify-between">
-            <h3 className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-2">
-              <Building className="w-4 h-4 text-emerald-600" />
-              <span>قائمة الحلقات القرآنية ومسؤوليها</span>
-            </h3>
+            <div>
+              <h3 className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-2">
+                <Building className="w-4 h-4 text-emerald-600" />
+                <span>قائمة الحلقات القرآنية وتوزيع الطلاب</span>
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                يمكنك من هنا معرفة الطلاب المنتمين لكل حلقة وإضافة طلاب جدد للحلقة مباشرة.
+              </p>
+            </div>
 
             <button
               onClick={() => {
@@ -366,17 +439,22 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
             </button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
             {halaqat.map(h => {
               const teacher = users.find(u => u.id === h.teacherId);
               const supervisor = users.find(u => u.id === h.supervisorId);
+
+              // الطلاب المنتمون لهذه الحلقة
+              const circleEnrollments = enrollments.filter(e => e.circleId === h.id);
+              const circleStudentIds = circleEnrollments.map(e => e.studentId);
+              const enrolledStudents = students.filter(s => circleStudentIds.includes(s.id));
 
               return (
                 <div
                   key={h.id}
                   className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 shadow-xs space-y-4"
                 >
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-start justify-between">
                     <div>
                       <div className="flex items-center gap-2">
                         <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
@@ -396,7 +474,7 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
 
                   <div className="bg-slate-50 dark:bg-slate-800/60 rounded-xl p-3 space-y-2 text-xs">
                     <div className="flex justify-between">
-                      <span className="text-slate-500">المعلم المباشر:</span>
+                      <span className="text-slate-500">المعلم المسؤول:</span>
                       <span className="font-bold text-slate-800 dark:text-slate-200">
                         {teacher?.name || 'غير معين'}
                       </span>
@@ -413,6 +491,60 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
                         {h.scheduleDays.join(' - ')} ({h.timeSlot})
                       </span>
                     </div>
+                  </div>
+
+                  {/* قسم الطلاب الملتحقين بالحلقة */}
+                  <div className="border-t border-slate-100 dark:border-slate-800 pt-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800 dark:text-slate-200">
+                        <Users className="w-4 h-4 text-emerald-600" />
+                        <span>الطلاب المسجلون بالحلقة ({enrolledStudents.length}/{h.maxStudents})</span>
+                      </div>
+
+                      <button
+                        onClick={() => {
+                          setSelectedHalaqahForEnroll(h);
+                          setSelectedStudentToEnroll(students.find(s => !circleStudentIds.includes(s.id))?.id || '');
+                          setIsEnrollModalOpen(true);
+                        }}
+                        className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1"
+                      >
+                        <UserPlus className="w-3.5 h-3.5" />
+                        <span>+ تسجيل طالب في الحلقة</span>
+                      </button>
+                    </div>
+
+                    {enrolledStudents.length === 0 ? (
+                      <div className="p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl text-center text-xs text-slate-400">
+                        لا يوجد طلاب مسجلون في هذه الحلقة حالياً. اضغط على "+ تسجيل طالب في الحلقة" لربط طالب بها.
+                      </div>
+                    ) : (
+                      <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                        {enrolledStudents.map(st => {
+                          const enr = circleEnrollments.find(e => e.studentId === st.id);
+                          return (
+                            <div
+                              key={st.id}
+                              className="flex items-center justify-between p-2 bg-slate-50 dark:bg-slate-800/50 rounded-xl text-xs"
+                            >
+                              <div className="flex items-center gap-2">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                                <span className="font-semibold text-slate-800 dark:text-slate-200">{st.name}</span>
+                                <span className="text-[10px] text-slate-400 font-mono" dir="ltr">{st.phone}</span>
+                              </div>
+
+                              <button
+                                onClick={() => handleUnenrollStudent(enr?.id || '', h.id, st.id)}
+                                className="text-slate-400 hover:text-rose-600 transition text-[11px] p-1"
+                                title="إلغاء تسجيل الطالب من هذه الحلقة"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -433,7 +565,11 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
             </h3>
 
             <button
-              onClick={() => setIsAddUserModalOpen(true)}
+              onClick={() => {
+                setNewUserRole('STUDENT');
+                setNewUserHalaqahId(halaqat[0]?.id || '');
+                setIsAddUserModalOpen(true);
+              }}
               className="flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-600/20 transition"
             >
               <UserPlus className="w-4 h-4" />
@@ -449,8 +585,8 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
                     <th className="p-3">الاسم والمستخدم</th>
                     <th className="p-3">الدور / الصلاحية</th>
                     <th className="p-3">رقم الهاتف</th>
+                    <th className="p-3">الحلقة القرآنية المرتبطة</th>
                     <th className="p-3">الدولة واللهجة</th>
-                    <th className="p-3">الارتباط (مشرف / معلم)</th>
                     <th className="p-3">الحالة</th>
                     <th className="p-3">الإجراءات</th>
                   </tr>
@@ -459,8 +595,12 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
                   {users.map(u => {
                     const country = countries.find(c => c.id === u.countryId);
                     const dialect = country?.dialects.find(d => d.id === u.dialectId);
-                    const supervisor = users.find(x => x.id === u.supervisorId);
-                    const teacher = users.find(x => x.id === u.teacherId);
+
+                    // البحث عن الحلقة المرتبطة
+                    const studentEnrs = enrollments.filter(e => e.studentId === u.id);
+                    const studentHalaqatNames = studentEnrs
+                      .map(e => halaqat.find(h => h.id === e.circleId)?.name)
+                      .filter(Boolean);
 
                     const roleBadges: Record<UserRole, { label: string; color: string }> = {
                       ADMIN: { label: 'مدير النظام (Admin)', color: 'bg-rose-100 text-rose-800 border-rose-200' },
@@ -483,18 +623,26 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
                           </span>
                         </td>
                         <td className="p-3 font-mono" dir="ltr">{u.phone}</td>
+                        <td className="p-3 text-slate-700 dark:text-slate-300">
+                          {u.role === 'STUDENT' ? (
+                            studentHalaqatNames.length > 0 ? (
+                              <span className="font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-1 rounded-lg border border-emerald-200 dark:border-emerald-800 inline-block text-[11px]">
+                                {studentHalaqatNames.join('، ')}
+                              </span>
+                            ) : (
+                              <span className="text-slate-400 italic text-[11px]">غير مسجل بحلقة</span>
+                            )
+                          ) : u.role === 'TEACHER' ? (
+                            <span className="text-xs text-slate-500">
+                              {halaqat.filter(h => h.teacherId === u.id).map(h => h.name).join('، ') || 'معلم بدون حلقات'}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400">-</span>
+                          )}
+                        </td>
                         <td className="p-3">
                           <div>{country?.nameAr || 'غير محدد'}</div>
                           <div className="text-[11px] text-slate-400">{dialect?.name || '-'}</div>
-                        </td>
-                        <td className="p-3 text-slate-600 dark:text-slate-300">
-                          {u.role === 'TEACHER' && supervisor && (
-                            <span>مشرفه: {supervisor.name}</span>
-                          )}
-                          {u.role === 'STUDENT' && teacher && (
-                            <span>معلمه: {teacher.name}</span>
-                          )}
-                          {!u.supervisorId && !u.teacherId && '-'}
                         </td>
                         <td className="p-3">
                           <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${
@@ -524,7 +672,42 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
       {/* ─────────────────────────────────────────────────────────────
           MODALS
       ───────────────────────────────────────────────────────────── */}
-      {/* 1. Add Country Modal */}
+
+      {/* 1. Modal تسجيل طالب في حلقة */}
+      {isEnrollModalOpen && selectedHalaqahForEnroll && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <form onSubmit={handleEnrollExistingStudent} className="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-200 dark:border-slate-800 max-w-md w-full space-y-4 shadow-xl text-right">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <h4 className="font-bold text-sm">تسجيل طالب في ({selectedHalaqahForEnroll.name})</h4>
+              <button type="button" onClick={() => setIsEnrollModalOpen(false)}><X className="w-4 h-4" /></button>
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold block mb-1">اختر الطالب:</label>
+              <select
+                required
+                value={selectedStudentToEnroll}
+                onChange={e => setSelectedStudentToEnroll(e.target.value)}
+                className="w-full bg-slate-50 dark:bg-slate-800 border rounded-xl p-2.5 text-xs font-bold outline-none"
+              >
+                <option value="">-- اختر طالباً --</option>
+                {students.map(st => (
+                  <option key={st.id} value={st.id}>
+                    {st.name} ({st.phone})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button type="button" onClick={() => setIsEnrollModalOpen(false)} className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-bold">إلغاء</button>
+              <button type="submit" className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold">تأكيد التسجيل في الحلقة</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* 2. Add Country Modal */}
       {isAddCountryModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
           <form onSubmit={handleAddCountry} className="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-200 dark:border-slate-800 max-w-md w-full space-y-4 shadow-xl text-right">
@@ -561,7 +744,7 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
         </div>
       )}
 
-      {/* 2. Add Dialect Modal */}
+      {/* 3. Add Dialect Modal */}
       {isAddDialectModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
           <form onSubmit={handleAddDialect} className="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-200 dark:border-slate-800 max-w-md w-full space-y-4 shadow-xl text-right">
@@ -610,7 +793,7 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
         </div>
       )}
 
-      {/* 3. Add Halaqah Modal */}
+      {/* 4. Add Halaqah Modal */}
       {isAddHalaqahModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
           <form onSubmit={handleAddHalaqah} className="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-200 dark:border-slate-800 max-w-lg w-full space-y-4 shadow-xl text-right">
@@ -693,7 +876,7 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
         </div>
       )}
 
-      {/* 4. Add User Modal */}
+      {/* 5. Add User Modal */}
       {isAddUserModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
           <form onSubmit={handleAddUser} className="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-200 dark:border-slate-800 max-w-lg w-full space-y-4 shadow-xl text-right">
@@ -754,6 +937,30 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
                 />
               </div>
             </div>
+
+            {/* إذا كان الدور طالباً: إظهار اختيار الحلقة مباشرة */}
+            {newUserRole === 'STUDENT' && (
+              <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 rounded-xl border border-emerald-200 dark:border-emerald-800/60 space-y-2">
+                <label className="text-xs font-bold text-emerald-800 dark:text-emerald-300 block">
+                  📖 الحلقة القرآنية المراد تسجيل الطالب بها مباشرة:
+                </label>
+                <select
+                  value={newUserHalaqahId}
+                  onChange={e => setNewUserHalaqahId(e.target.value)}
+                  className="w-full bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-700 rounded-xl p-2.5 text-xs font-bold text-slate-800 dark:text-white outline-none"
+                >
+                  <option value="">-- بدون حلقة حالياً --</option>
+                  {halaqat.map(h => {
+                    const tch = users.find(u => u.id === h.teacherId);
+                    return (
+                      <option key={h.id} value={h.id}>
+                        {h.name} (معلمها: {tch?.name || 'غير معين'})
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-3">
               <div>

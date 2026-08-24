@@ -52,16 +52,18 @@ export default function App() {
   useEffect(() => {
     async function loadDataFromApi() {
       try {
-        const [apiCountries, apiUsers, apiHalaqat, apiSessions] = await Promise.all([
+        const [apiCountries, apiUsers, apiHalaqat, apiSessions, apiEnrollments] = await Promise.all([
           api.getCountries(),
           api.getUsers(),
           api.getHalaqat(),
-          api.getSessions()
+          api.getSessions(),
+          api.getEnrollments()
         ]);
         if (Array.isArray(apiCountries)) { setCountriesState(apiCountries); setStoredCountries(apiCountries); }
         if (Array.isArray(apiUsers)) { setUsersState(apiUsers); setStoredUsers(apiUsers); }
         if (Array.isArray(apiHalaqat)) { setHalaqatState(apiHalaqat); setStoredHalaqat(apiHalaqat); }
         if (Array.isArray(apiSessions)) { setSessionsState(apiSessions); setStoredSessions(apiSessions); }
+        if (Array.isArray(apiEnrollments)) { setEnrollmentsState(apiEnrollments); setStoredEnrollments(apiEnrollments); }
       } catch (e) {
         console.warn('Syncing with PostgreSQL API...', e);
       }
@@ -92,6 +94,11 @@ export default function App() {
   const setHalaqat = (newHalaqat: Halaqah[]) => {
     setHalaqatState(newHalaqat);
     setStoredHalaqat(newHalaqat);
+  };
+
+  const setEnrollments = (newEnrollments: StudentEnrollment[]) => {
+    setEnrollmentsState(newEnrollments);
+    setStoredEnrollments(newEnrollments);
   };
 
   const handleSaveSession = async (newSession: HalaqahSession) => {
@@ -211,6 +218,8 @@ export default function App() {
             setHalaqat={setHalaqat}
             users={users}
             setUsers={setUsers}
+            enrollments={enrollments}
+            setEnrollments={setEnrollments}
           />
         )}
 
