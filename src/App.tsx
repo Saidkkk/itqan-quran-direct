@@ -52,7 +52,19 @@ export default function App() {
     }
   });
 
-  const currentUser = users.find(u => u.id === currentUserId) || null;
+  const rawUser = users.find(u => u.id === currentUserId) || null;
+  const currentUser = rawUser && rawUser.isActive ? rawUser : null;
+
+  // Clear invalid or deactivated user from storage
+  useEffect(() => {
+    if (currentUserId && !currentUser) {
+      try {
+        localStorage.removeItem(AUTH_USER_KEY);
+      } catch {
+        // ignore
+      }
+    }
+  }, [currentUserId, currentUser]);
 
   // Active Tab
   const [currentTab, setCurrentTab] = useState<'TEACHER_RECORDER' | 'REPORTS' | 'ADMIN' | 'ARCHITECTURE' | 'DOCS'>('TEACHER_RECORDER');

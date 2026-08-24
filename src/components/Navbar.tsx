@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { 
   BarChart3, 
   BookOpen, 
   Database, 
   FileCode2, 
+  KeyRound,
   LogOut, 
   Moon, 
   RotateCcw, 
@@ -12,6 +13,7 @@ import {
   Users 
 } from 'lucide-react';
 import { User, UserRole } from '../types';
+import { ChangePasswordModal } from './ChangePasswordModal';
 
 interface NavbarProps {
   currentTab: 'TEACHER_RECORDER' | 'REPORTS' | 'ADMIN' | 'ARCHITECTURE' | 'DOCS';
@@ -32,6 +34,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   setIsDarkMode,
   onResetData
 }) => {
+  const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
   // Define permitted tabs by role
   const getNavItemsForRole = (role: UserRole) => {
     switch (role) {
@@ -110,12 +113,22 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* Zone 3: Primary Actions (User Info, Logout, Dark Mode) */}
         <div className="flex items-center gap-2 shrink-0">
-          {/* User Info Badge */}
+          {/* User Info Badge & Change Password Trigger */}
           <div className={`hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold ${currentRoleInfo.bg} ${currentRoleInfo.color}`}>
             <span>{currentRoleInfo.icon}</span>
             <span className="truncate max-w-[130px]">{currentUser.name}</span>
             <span className="text-[10px] opacity-75 font-normal">({currentRoleInfo.label})</span>
           </div>
+
+          {/* Change Password Button */}
+          <button
+            onClick={() => setIsPasswordModalOpen(true)}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 hover:text-emerald-700 dark:hover:text-emerald-300 hover:border-emerald-300 dark:hover:border-emerald-800 text-xs font-bold transition cursor-pointer"
+            title="تغيير كلمة المرور الخاصة بحسابك"
+          >
+            <KeyRound className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+            <span className="hidden lg:inline whitespace-nowrap">تغيير كلمة المرور</span>
+          </button>
 
           {/* Dark Mode Toggle */}
           <button
@@ -157,6 +170,13 @@ export const Navbar: React.FC<NavbarProps> = ({
           );
         })}
       </div>
+
+      {/* Change Password Modal for current logged-in user */}
+      <ChangePasswordModal
+        currentUser={currentUser}
+        isOpen={isPasswordModalOpen}
+        onClose={() => setIsPasswordModalOpen(false)}
+      />
     </header>
   );
 };

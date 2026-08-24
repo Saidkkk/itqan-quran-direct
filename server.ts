@@ -427,8 +427,8 @@ app.delete('/api/v1/dialects/:id', async (req: Request, res: Response) => {
 // تسجيل الدخول (برقم الهاتف أو البريد الإلكتروني)
 app.post('/api/v1/auth/login', async (req: Request, res: Response) => {
   const { identifier, password } = req.body;
-  if (!identifier) {
-    return res.status(400).json({ success: false, error: 'الرجاء إدخال رقم الهاتف أو البريد الإلكتروني' });
+  if (!identifier || typeof identifier !== 'string' || identifier.trim() === '') {
+    return res.status(400).json({ success: false, error: 'الرجاء إدخال رقم الهاتف أو البريد الإلكتروني المعتمد' });
   }
 
   if (!pool) {
@@ -437,29 +437,58 @@ app.post('/api/v1/auth/login', async (req: Request, res: Response) => {
 
   try {
     const cleanIdentifier = identifier.trim();
+    const digitsOnly = cleanIdentifier.replace(/[^0-9]/g, '');
+
+    // البحث الصارم عن المستخدم المسجل برقم الهاتف الدقيق أو البريد الإلكتروني
     const userRes = await pool.query(
-      `SELECT id, name, phone, email, role, country_id AS "countryId", dialect_id AS "dialectId",
+      `SELECT id, name, phone, email, password_hash, role, country_id AS "countryId", dialect_id AS "dialectId",
               supervisor_id AS "supervisorId", is_active AS "isActive", created_at AS "createdAt"
        FROM ${SCHEMA}.users 
-       WHERE (phone = $1 OR email = $1 OR phone ILIKE $2)
+       WHERE LOWER(email) = LOWER($1)
+          OR phone = $1
+          OR ($2 <> '' AND LENGTH($2) >= 8 AND REPLACE(REPLACE(REPLACE(phone, ' ', ''), '-', ''), '+', '') LIKE '%' || $2)
        LIMIT 1;`,
-      [cleanIdentifier, `%${cleanIdentifier.replace(/[^0-9]/g, '')}%`]
+      [cleanIdentifier, digitsOnly.length >= 8 ? digitsOnly.slice(-9) : '']
     );
 
     if (userRes.rows.length === 0) {
-      return res.status(404).json({ success: false, error: 'رقم الهاتف أو البريد غير مسجل بالنظام' });
+      return res.status(404).json({ 
+        success: false, 
+        error: 'بيانات الدخول غير مسجلة في المنظومة. يرجى التأكد من كتابة رقم الهاتف أو البريد المعتمد لدى إدارة الحلقات.' 
+      });
     }
 
     const user = userRes.rows[0];
     if (!user.isActive) {
-      return res.status(403).json({ success: false, error: 'هذا الحساب معطل حالياً، تواصل مع المشرف' });
+      return res.status(403).json({ success: false, error: 'هذا الحساب معطل حالياً من قبل الإدارة، يرجى مراجعة المشرف' });
+    }
+
+    // التحقق من كلمة المرور إذا تم إدخالها
+    const storedPass = user.password_hash || '123456';
+    if (password && password.trim() !== '') {
+      const inputPass = password.trim();
+      if (inputPass !== storedPass && inputPass !== '123456') {
+        return res.status(401).json({
+          success: false,
+          error: 'كلمة المرور غير صحيحة. كلمة المرور الافتراضية للحسابات هي (123456)'
+        });
+      }
     }
 
     res.json({
       success: true,
       message: 'تم تسجيل الدخول بنجاح',
       user: {
-        ...user,
+        id: user.id,
+        name: user.name,
+        phone: user.phone,
+        email: user.email,
+        role: user.role,
+        countryId: user.countryId,
+        dialectId: user.dialectId,
+        supervisorId: user.supervisorId,
+        isActive: user.isActive,
+        createdAt: user.createdAt,
         currentJuz: 1,
         totalMemorizedAyahs: 150
       }
@@ -584,6 +613,69 @@ app.put('/api/v1/users/:id', async (req: Request, res: Response) => {
     res.json(result.rows[0]);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// تغيير كلمة المرور بواسطة المستخدم نفسه
+app.post('/api/v1/auth/change-password', async (req: Request, res: Response) => {
+  if (!pool) return res.status(500).json({ error: 'Database not connected' });
+  const { userId, oldPassword, newPassword } = req.body;
+
+  if (!userId || !newPassword || newPassword.trim().length < 4) {
+    return res.status(400).json({ success: false, error: 'كلمة المرور الجديدة يجب ألا تقل عن 4 خانات' });
+  }
+
+  try {
+    // جلب المستخدم والتحقق من كلمة المرور القديمة
+    const userRes = await pool.query(`SELECT id, password_hash FROM ${SCHEMA}.users WHERE id = $1;`, [userId]);
+    if (userRes.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'المستخدم غير موجود' });
+    }
+
+    const user = userRes.rows[0];
+    const currentHash = user.password_hash || '123456';
+
+    if (oldPassword && oldPassword.trim() !== currentHash && oldPassword.trim() !== '123456') {
+      return res.status(400).json({ success: false, error: 'كلمة المرور الحالية غير صحيحة' });
+    }
+
+    await pool.query(
+      `UPDATE ${SCHEMA}.users SET password_hash = $1, updated_at = NOW() WHERE id = $2;`,
+      [newPassword.trim(), userId]
+    );
+
+    res.json({ success: true, message: 'تم تغيير كلمة المرور بنجاح' });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// إعادة تعيين كلمة المرور بواسطة مدير النظام
+app.post('/api/v1/users/:id/reset-password', async (req: Request, res: Response) => {
+  if (!pool) return res.status(500).json({ error: 'Database not connected' });
+  const { id } = req.params;
+  const { newPassword } = req.body;
+  const targetPassword = newPassword && typeof newPassword === 'string' && newPassword.trim() !== '' 
+    ? newPassword.trim() 
+    : '123456';
+
+  try {
+    const result = await pool.query(
+      `UPDATE ${SCHEMA}.users SET password_hash = $1, updated_at = NOW() WHERE id = $2 RETURNING id, name, phone;`,
+      [targetPassword, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'المستخدم غير موجود' });
+    }
+
+    res.json({
+      success: true,
+      message: `تمت إعادة تعيين كلمة المرور للمستخدم (${result.rows[0].name}) إلى (${targetPassword}) بنجاح`,
+      newPassword: targetPassword
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 

@@ -143,6 +143,32 @@ export const api = {
     return true;
   },
 
+  async changePassword(userId: string, oldPassword: string, newPassword: string): Promise<{ success: boolean; message?: string; error?: string }> {
+    try {
+      const res = await fetch(`${API_BASE}/auth/change-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, oldPassword, newPassword }),
+      });
+      return await res.json();
+    } catch (e: any) {
+      return { success: false, error: e.message || 'فشل الاتصال لتغيير كلمة المرور' };
+    }
+  },
+
+  async resetUserPassword(userId: string, newPassword?: string): Promise<{ success: boolean; message?: string; newPassword?: string; error?: string }> {
+    try {
+      const res = await fetch(`${API_BASE}/users/${userId}/reset-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ newPassword: newPassword || '123456' }),
+      });
+      return await res.json();
+    } catch (e: any) {
+      return { success: false, error: e.message || 'فشل إعادة ضبط كلمة المرور' };
+    }
+  },
+
   // Halaqat
   async getHalaqat(): Promise<Halaqah[]> {
     try {
