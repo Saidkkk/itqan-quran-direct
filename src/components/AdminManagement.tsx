@@ -185,8 +185,21 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
     }
   };
 
-  const toggleUserStatus = (userId: string) => {
-    setUsers(users.map(u => u.id === userId ? { ...u, isActive: !u.isActive } : u));
+  const toggleUserStatus = async (userId: string) => {
+    const userToUpdate = users.find(u => u.id === userId);
+    if (!userToUpdate) return;
+    const updatedStatus = !userToUpdate.isActive;
+    
+    // Optimistic UI update
+    setUsers(users.map(u => u.id === userId ? { ...u, isActive: updatedStatus } : u));
+    
+    try {
+      await api.updateUser(userId, { isActive: updatedStatus });
+    } catch (e) {
+      console.error('Failed to update user status in DB', e);
+      // Revert if failed
+      setUsers(users.map(u => u.id === userId ? { ...u, isActive: userToUpdate.isActive } : u));
+    }
   };
 
   return (

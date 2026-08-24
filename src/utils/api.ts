@@ -69,6 +69,30 @@ export const api = {
     return await res.json();
   },
 
+  async updateUser(id: string, updates: Partial<User>): Promise<User> {
+    const res = await fetch(`${API_BASE}/users/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({ error: 'فشل تحديث المستخدم' }));
+      throw new Error(errData.error || 'فشل تحديث المستخدم في PostgreSQL');
+    }
+    return await res.json();
+  },
+
+  async deleteUser(id: string): Promise<boolean> {
+    const res = await fetch(`${API_BASE}/users/${id}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({ error: 'فشل حذف المستخدم' }));
+      throw new Error(errData.error || 'فشل حذف المستخدم من PostgreSQL');
+    }
+    return true;
+  },
+
   // Halaqat
   async getHalaqat(): Promise<Halaqah[]> {
     try {

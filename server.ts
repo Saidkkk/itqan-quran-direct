@@ -152,27 +152,26 @@ async function initDatabaseSchema() {
       ON CONFLICT (code) DO UPDATE SET name_ar = EXCLUDED.name_ar, name_en = EXCLUDED.name_en;
     `);
 
-    // 2. بذر المستخدمين الـ 10 بالكامل (مدير، مشرفين، معلمين، طلاب) في قاعدة البيانات
-    await pool.query(`
-      INSERT INTO ${SCHEMA}.users (name, phone, email, role, is_active)
-      VALUES 
-        ('الشيخ عبد الله بن فهد المنصور', '+966501112233', 'admin@itqan-quran.org', 'ADMIN', true),
-        ('الشيخ د. عثمان الشنقيطي', '+966502223344', 'othman.sh@itqan-quran.org', 'SUPERVISOR', true),
-        ('الشيخ أحمد مصطفى المعصراوي', '+201003334455', 'maasarawi@itqan-quran.org', 'SUPERVISOR', true),
-        ('الشيخ محمود بن خليل الحافظ', '+966504445566', 'mahmoud.khalil@itqan-quran.org', 'TEACHER', true),
-        ('الشيخ إبراهيم الدوسري', '+966505556677', 'ibrahim.d@itqan-quran.org', 'TEACHER', true),
-        ('الشيخ حمزة بن عبد الله التازي', '+212606667788', 'hamza.tazi@itqan-quran.org', 'TEACHER', true),
-        ('الشيخ عبد الرحمن بن ناصر', '+966503334455', 'abdulrahman@itqan-quran.org', 'TEACHER', true),
-        ('عمر بن عبد العزيز الحربي', '+966551122331', 'omar.harbi@student.itqan.org', 'STUDENT', true),
-        ('عبد الله بن أحمد السبيعي', '+966551122332', 'abdullah.ahmed@student.itqan.org', 'STUDENT', true),
-        ('يوسف بن طارق المنصوري', '+971501122333', 'youssef.m@student.itqan.org', 'STUDENT', true),
-        ('معاذ بن صالح الزهراني', '+966551122334', 'muadh.z@student.itqan.org', 'STUDENT', true)
-      ON CONFLICT (phone) DO UPDATE SET 
-        name = EXCLUDED.name,
-        email = EXCLUDED.email,
-        role = EXCLUDED.role,
-        is_active = EXCLUDED.is_active;
-    `);
+    // 2. بذر المستخدمين الأساسيين فقط إذا كان الجدول فارغاً لمنع مسح أو تعديل أي مستخدم
+    const usersCountRes = await pool.query(`SELECT COUNT(*) FROM ${SCHEMA}.users;`);
+    if (parseInt(usersCountRes.rows[0].count, 10) === 0) {
+      await pool.query(`
+        INSERT INTO ${SCHEMA}.users (name, phone, email, role, is_active)
+        VALUES 
+          ('الشيخ عبد الله بن فهد المنصور', '+966501112233', 'admin@itqan-quran.org', 'ADMIN', true),
+          ('الشيخ د. عثمان الشنقيطي', '+966502223344', 'othman.sh@itqan-quran.org', 'SUPERVISOR', true),
+          ('الشيخ أحمد مصطفى المعصراوي', '+201003334455', 'maasarawi@itqan-quran.org', 'SUPERVISOR', true),
+          ('الشيخ محمود بن خليل الحافظ', '+966504445566', 'mahmoud.khalil@itqan-quran.org', 'TEACHER', true),
+          ('الشيخ إبراهيم الدوسري', '+966505556677', 'ibrahim.d@itqan-quran.org', 'TEACHER', true),
+          ('الشيخ حمزة بن عبد الله التازي', '+212606667788', 'hamza.tazi@itqan-quran.org', 'TEACHER', true),
+          ('الشيخ عبد الرحمن بن ناصر', '+966503334455', 'abdulrahman@itqan-quran.org', 'TEACHER', true),
+          ('عمر بن عبد العزيز الحربي', '+966551122331', 'omar.harbi@student.itqan.org', 'STUDENT', true),
+          ('عبد الله بن أحمد السبيعي', '+966551122332', 'abdullah.ahmed@student.itqan.org', 'STUDENT', true),
+          ('يوسف بن طارق المنصوري', '+971501122333', 'youssef.m@student.itqan.org', 'STUDENT', true),
+          ('معاذ بن صالح الزهراني', '+966551122334', 'muadh.z@student.itqan.org', 'STUDENT', true)
+        ON CONFLICT (phone) DO NOTHING;
+      `);
+    }
 
     // 3. بذر حلقات افتراضية أولية وربطها بالمعلمين
     await pool.query(`
@@ -390,7 +389,7 @@ app.get('/api/v1/users', async (req: Request, res: Response) => {
   }
 });
 
-// إضافة مستخدم جديد
+// إضافة مستخدم جديد (إنشاء مستخدم مستقل تماماً)
 app.post('/api/v1/users', async (req: Request, res: Response) => {
   if (!pool) return res.status(500).json({ error: 'Database not connected' });
   const { name, phone, email, password, role, countryId, dialectId, supervisorId } = req.body;
@@ -403,6 +402,18 @@ app.post('/api/v1/users', async (req: Request, res: Response) => {
 
     if (!cleanPhone || !cleanName) {
       return res.status(400).json({ error: 'الاسم ورقم الهاتف مطلوبان' });
+    }
+
+    // التحقق من عدم وجود مستخدم مسجل مسبقاً بنفس رقم الهاتف
+    const existingPhoneRes = await pool.query(
+      `SELECT id, name, role FROM ${SCHEMA}.users WHERE phone = $1 LIMIT 1;`,
+      [cleanPhone]
+    );
+    if (existingPhoneRes.rows.length > 0) {
+      const existingUser = existingPhoneRes.rows[0];
+      return res.status(400).json({
+        error: `رقم الهاتف (${cleanPhone}) مسجل مسبقاً باسم: "${existingUser.name}" كـ (${existingUser.role}). يرجى كتابة رقم هاتف مختلف لمنع استبدال المستخدم القديم.`
+      });
     }
 
     // مطابقة معرّف الدولة إذا كان UUID أو كود (مثل SA أو cnt-sa)
@@ -426,13 +437,6 @@ app.post('/api/v1/users', async (req: Request, res: Response) => {
     const result = await pool.query(
       `INSERT INTO ${SCHEMA}.users (name, phone, email, password_hash, role, country_id, dialect_id, supervisor_id)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       ON CONFLICT (phone) DO UPDATE SET 
-         name = EXCLUDED.name,
-         email = COALESCE(EXCLUDED.email, ${SCHEMA}.users.email),
-         role = EXCLUDED.role,
-         country_id = COALESCE(EXCLUDED.country_id, ${SCHEMA}.users.country_id),
-         supervisor_id = COALESCE(EXCLUDED.supervisor_id, ${SCHEMA}.users.supervisor_id),
-         updated_at = NOW()
        RETURNING id, name, phone, email, role, country_id AS "countryId", dialect_id AS "dialectId",
                  supervisor_id AS "supervisorId", is_active AS "isActive", created_at AS "createdAt";`,
       [
@@ -447,10 +451,54 @@ app.post('/api/v1/users', async (req: Request, res: Response) => {
       ]
     );
 
-    console.log(`✅ تم حفظ/تحديث المستخدم بنجاح في PostgreSQL:`, result.rows[0]);
+    console.log(`✅ تم إنشاء مستخدم جديد بنجاح في PostgreSQL:`, result.rows[0]);
     res.status(201).json(result.rows[0]);
   } catch (err: any) {
     console.error('❌ خطأ أثناء إنشاء المستخدم في PostgreSQL:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// تحديث مستخدم موجود
+app.put('/api/v1/users/:id', async (req: Request, res: Response) => {
+  if (!pool) return res.status(500).json({ error: 'Database not connected' });
+  const { id } = req.params;
+  const { name, phone, email, role, isActive } = req.body;
+
+  try {
+    const result = await pool.query(
+      `UPDATE ${SCHEMA}.users
+       SET name = COALESCE($1, name),
+           phone = COALESCE($2, phone),
+           email = COALESCE($3, email),
+           role = COALESCE($4, role),
+           is_active = COALESCE($5, is_active),
+           updated_at = NOW()
+       WHERE id = $6
+       RETURNING id, name, phone, email, role, country_id AS "countryId", dialect_id AS "dialectId",
+                 supervisor_id AS "supervisorId", is_active AS "isActive", created_at AS "createdAt";`,
+      [name, phone, email, role, isActive, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'المستخدم غير موجود' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// حذف مستخدم
+app.delete('/api/v1/users/:id', async (req: Request, res: Response) => {
+  if (!pool) return res.status(500).json({ error: 'Database not connected' });
+  const { id } = req.params;
+
+  try {
+    await pool.query(`DELETE FROM ${SCHEMA}.users WHERE id = $1;`, [id]);
+    res.json({ success: true, message: 'تم حذف المستخدم بنجاح' });
+  } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
