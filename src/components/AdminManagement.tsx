@@ -14,10 +14,15 @@ import {
   AlertTriangle,
   Info,
   Layers,
-  Sparkles
+  Sparkles,
+  Calendar,
+  Clock,
+  BookOpen
 } from 'lucide-react';
 import { Country, Dialect, Halaqah, HalaqahSession, StudentEnrollment, User, UserRole } from '../types';
 import { api } from '../utils/api';
+
+const WEEK_DAYS = ['السبت', 'الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة'];
 
 interface AdminManagementProps {
   countries: Country[];
@@ -94,6 +99,8 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
   const [newHalaqahLevel, setNewHalaqahLevel] = useState<'مبتدئ' | 'متوسط' | 'متقدم' | 'إجازة وإتقان'>('متوسط');
   const [newHalaqahTargetJuz, setNewHalaqahTargetJuz] = useState<number>(3);
   const [newHalaqahTime, setNewHalaqahTime] = useState('بعد صلاة العصر');
+  const [newHalaqahDays, setNewHalaqahDays] = useState<string[]>(['الأحد', 'الثلاثاء', 'الخميس']);
+  const [newHalaqahMaxStudents, setNewHalaqahMaxStudents] = useState<number>(15);
 
   const [editingHalaqah, setEditingHalaqah] = useState<Halaqah | null>(null);
 
@@ -410,11 +417,11 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
         code: `HLQ-${Date.now().toString().slice(-4)}`,
         teacherId: newHalaqahTeacherId || teachers[0]?.id || 'usr-tch-1',
         supervisorId: newHalaqahSupervisorId || supervisors[0]?.id || 'usr-sup-1',
-        scheduleDays: ['الأحد', 'الثلاثاء', 'الخميس'],
-        timeSlot: newHalaqahTime,
+        scheduleDays: newHalaqahDays.length > 0 ? newHalaqahDays : ['الأحد', 'الثلاثاء', 'الخميس'],
+        timeSlot: newHalaqahTime || 'بعد صلاة العصر',
         targetJuz: newHalaqahTargetJuz,
         level: newHalaqahLevel,
-        maxStudents: 15,
+        maxStudents: newHalaqahMaxStudents || 15,
         isActive: true,
         createdAt: new Date().toISOString().split('T')[0]
       };
@@ -848,24 +855,89 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
                     </div>
                   </div>
 
-                  <div className="bg-slate-50 dark:bg-slate-800/60 rounded-xl p-3 space-y-2 text-xs">
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">المعلم المسؤول:</span>
+                  <div className="bg-slate-50 dark:bg-slate-800/60 rounded-xl p-3.5 space-y-2.5 text-xs">
+                    {/* المعلم المسؤول */}
+                    <div className="flex justify-between items-center pb-2 border-b border-slate-200/60 dark:border-slate-700/60">
+                      <span className="text-slate-500 flex items-center gap-1.5">
+                        <Users className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>المعلم المسؤول:</span>
+                      </span>
                       <span className="font-bold text-slate-800 dark:text-slate-200">
                         {teacher?.name || 'غير معين'}
                       </span>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">المشرف العام:</span>
+
+                    {/* المشرف العام */}
+                    <div className="flex justify-between items-center pb-2 border-b border-slate-200/60 dark:border-slate-700/60">
+                      <span className="text-slate-500 flex items-center gap-1.5">
+                        <Shield className="w-3.5 h-3.5 text-purple-600" />
+                        <span>المشرف العام:</span>
+                      </span>
                       <span className="font-bold text-slate-800 dark:text-slate-200">
                         {supervisor?.name || 'غير معين'}
                       </span>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">مواعيد الحلقة:</span>
-                      <span className="font-medium text-slate-700 dark:text-slate-300">
-                        {h.scheduleDays?.join(' - ') || 'الأحد - الثلاثاء - الخميس'} ({h.timeSlot})
+
+                    {/* أيام الحلقة */}
+                    <div className="flex flex-col gap-1.5 pb-2 border-b border-slate-200/60 dark:border-slate-700/60">
+                      <div className="flex items-center justify-between text-slate-500">
+                        <span className="flex items-center gap-1.5">
+                          <Calendar className="w-3.5 h-3.5 text-blue-600" />
+                          <span>أيام انعقاد الحلقة:</span>
+                        </span>
+                        <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">
+                          {h.scheduleDays && h.scheduleDays.length > 0 ? `${h.scheduleDays.length} أيام في الأسبوع` : 'غير محدد'}
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap gap-1 pt-0.5">
+                        {h.scheduleDays && h.scheduleDays.length > 0 ? (
+                          h.scheduleDays.map((day, dIdx) => (
+                            <span
+                              key={dIdx}
+                              className="bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60 px-2.5 py-0.5 rounded-md text-[11px] font-bold"
+                            >
+                              {day}
+                            </span>
+                          ))
+                        ) : (
+                          <span className="text-slate-400 italic text-[11px]">لم يتم تحديد أيام</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* وقت الحلقة */}
+                    <div className="flex justify-between items-center pb-2 border-b border-slate-200/60 dark:border-slate-700/60">
+                      <span className="text-slate-500 flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5 text-amber-600" />
+                        <span>وقت وموعد الحلقة:</span>
                       </span>
+                      <span className="font-bold text-slate-800 dark:text-slate-200 bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 px-2.5 py-0.5 rounded-md border border-amber-200 dark:border-amber-800/60">
+                        {h.timeSlot || 'بعد صلاة العصر'}
+                      </span>
+                    </div>
+
+                    {/* الحد الأقصى للطلاب */}
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-500 flex items-center gap-1.5">
+                        <Users className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>الحد الأقصى للطلاب (السعة):</span>
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className={`font-bold px-2.5 py-0.5 rounded-md text-[11px] ${
+                          enrolledStudents.length >= (h.maxStudents || 15)
+                            ? 'bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
+                            : 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                        }`}>
+                          {enrolledStudents.length} / {h.maxStudents || 15} طالب
+                        </span>
+                        {enrolledStudents.length >= (h.maxStudents || 15) ? (
+                          <span className="text-[10px] text-rose-600 font-bold">مكتملة</span>
+                        ) : (
+                          <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">
+                            (متاح {(h.maxStudents || 15) - enrolledStudents.length} مقاعد)
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
 
@@ -1264,6 +1336,46 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
                 className="w-full bg-slate-50 dark:bg-slate-800 border rounded-xl p-2.5 text-xs outline-none"
               />
             </div>
+
+            {/* أيام انعقاد الحلقة */}
+            <div>
+              <label className="text-xs font-semibold block mb-1.5 flex items-center justify-between">
+                <span className="flex items-center gap-1">
+                  <Calendar className="w-3.5 h-3.5 text-blue-600" />
+                  <span>أيام انعقاد الحلقة (اضغط لاختيار أو إلغاء الأيام):</span>
+                </span>
+                <span className="text-[10px] text-slate-400 font-normal">
+                  المحدد: {(editingHalaqah.scheduleDays || []).length} أيام
+                </span>
+              </label>
+              <div className="flex flex-wrap gap-1.5">
+                {WEEK_DAYS.map(day => {
+                  const isSelected = editingHalaqah.scheduleDays?.includes(day);
+                  return (
+                    <button
+                      key={day}
+                      type="button"
+                      onClick={() => {
+                        const currentDays = editingHalaqah.scheduleDays || [];
+                        const newDays = isSelected
+                          ? currentDays.filter(d => d !== day)
+                          : [...currentDays, day];
+                        setEditingHalaqah({ ...editingHalaqah, scheduleDays: newDays });
+                      }}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1 border ${
+                        isSelected
+                          ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700'
+                      }`}
+                    >
+                      {isSelected ? <Check className="w-3 h-3" /> : <Plus className="w-3 h-3 opacity-40" />}
+                      <span>{day}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-xs font-semibold block mb-1">المعلم المسؤول:</label>
@@ -1322,26 +1434,45 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-xs font-semibold block mb-1">وقت الحلقة:</label>
+                <label className="text-xs font-semibold block mb-1 flex items-center gap-1">
+                  <Clock className="w-3.5 h-3.5 text-amber-600" />
+                  <span>وقت الحلقة:</span>
+                </label>
                 <input
                   type="text"
                   value={editingHalaqah.timeSlot}
+                  placeholder="مثلاً: بعد صلاة العصر"
                   onChange={e => setEditingHalaqah({ ...editingHalaqah, timeSlot: e.target.value })}
                   className="w-full bg-slate-50 dark:bg-slate-800 border rounded-xl p-2.5 text-xs outline-none"
                 />
               </div>
 
               <div>
-                <label className="text-xs font-semibold block mb-1">الحد الأقصى للطلاب:</label>
+                <label className="text-xs font-semibold block mb-1 flex items-center gap-1">
+                  <Users className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>الحد الأقصى للطلاب:</span>
+                </label>
                 <input
                   type="number"
                   min={1}
                   max={50}
-                  value={editingHalaqah.maxStudents}
+                  value={editingHalaqah.maxStudents || 15}
                   onChange={e => setEditingHalaqah({ ...editingHalaqah, maxStudents: Number(e.target.value) })}
                   className="w-full bg-slate-50 dark:bg-slate-800 border rounded-xl p-2.5 text-xs outline-none"
                 />
               </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold block mb-1">حالة الحلقة:</label>
+              <select
+                value={editingHalaqah.isActive ? 'ACTIVE' : 'INACTIVE'}
+                onChange={e => setEditingHalaqah({ ...editingHalaqah, isActive: e.target.value === 'ACTIVE' })}
+                className="w-full bg-slate-50 dark:bg-slate-800 border rounded-xl p-2.5 text-xs font-bold outline-none"
+              >
+                <option value="ACTIVE">نشطة (مفعلة)</option>
+                <option value="INACTIVE">متوقفة مؤقتاً</option>
+              </select>
             </div>
 
             <div className="flex justify-end gap-2 pt-2">
@@ -1576,6 +1707,46 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
                 className="w-full bg-slate-50 dark:bg-slate-800 border rounded-xl p-2.5 text-xs outline-none"
               />
             </div>
+
+            {/* اختيار أيام الحلقة */}
+            <div>
+              <label className="text-xs font-semibold block mb-1.5 flex items-center justify-between">
+                <span className="flex items-center gap-1">
+                  <Calendar className="w-3.5 h-3.5 text-blue-600" />
+                  <span>أيام انعقاد الحلقة:</span>
+                </span>
+                <span className="text-[10px] text-slate-400 font-normal">
+                  المحدد: {newHalaqahDays.length} أيام
+                </span>
+              </label>
+              <div className="flex flex-wrap gap-1.5">
+                {WEEK_DAYS.map(day => {
+                  const isSelected = newHalaqahDays.includes(day);
+                  return (
+                    <button
+                      key={day}
+                      type="button"
+                      onClick={() => {
+                        if (isSelected) {
+                          setNewHalaqahDays(newHalaqahDays.filter(d => d !== day));
+                        } else {
+                          setNewHalaqahDays([...newHalaqahDays, day]);
+                        }
+                      }}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1 border ${
+                        isSelected
+                          ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700'
+                      }`}
+                    >
+                      {isSelected ? <Check className="w-3 h-3" /> : <Plus className="w-3 h-3 opacity-40" />}
+                      <span>{day}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-xs font-semibold block mb-1">المعلم المسؤول:</label>
@@ -1632,8 +1803,39 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
               </div>
             </div>
 
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-semibold block mb-1 flex items-center gap-1">
+                  <Clock className="w-3.5 h-3.5 text-amber-600" />
+                  <span>وقت وموعد الحلقة:</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="مثلاً: بعد صلاة العصر"
+                  value={newHalaqahTime}
+                  onChange={e => setNewHalaqahTime(e.target.value)}
+                  className="w-full bg-slate-50 dark:bg-slate-800 border rounded-xl p-2.5 text-xs outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold block mb-1 flex items-center gap-1">
+                  <Users className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>الحد الأقصى للطلاب (السعة):</span>
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  max={50}
+                  value={newHalaqahMaxStudents}
+                  onChange={e => setNewHalaqahMaxStudents(Number(e.target.value))}
+                  className="w-full bg-slate-50 dark:bg-slate-800 border rounded-xl p-2.5 text-xs outline-none"
+                />
+              </div>
+            </div>
+
             <div className="flex justify-end gap-2 pt-2">
-              <button type="button" onClick={() => setIsAddHalaqahModalOpen(false)} className="px-4 py-2 rounded-xl bg-slate-100 text-xs font-bold">إلغاء</button>
+              <button type="button" onClick={() => setIsAddHalaqahModalOpen(false)} className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-bold">إلغاء</button>
               <button type="submit" className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold">إنشاء الحلقة</button>
             </div>
           </form>

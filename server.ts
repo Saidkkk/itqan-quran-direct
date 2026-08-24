@@ -674,6 +674,15 @@ app.put('/api/v1/halaqat/:id', async (req: Request, res: Response) => {
   const { name, code, teacherId, supervisorId, targetJuz, level, scheduleDays, timeSlot, maxStudents, isActive } = req.body;
 
   try {
+    let resolvedTeacherId: string | null = null;
+    if (teacherId && typeof teacherId === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(teacherId)) {
+      resolvedTeacherId = teacherId;
+    }
+    let resolvedSupervisorId: string | null = null;
+    if (supervisorId && typeof supervisorId === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(supervisorId)) {
+      resolvedSupervisorId = supervisorId;
+    }
+
     const result = await pool.query(
       `UPDATE ${SCHEMA}.halaqat
        SET name = COALESCE($1, name),
@@ -691,7 +700,7 @@ app.put('/api/v1/halaqat/:id', async (req: Request, res: Response) => {
                  target_juz AS "targetJuz", level, schedule_days AS "scheduleDays",
                  time_slot AS "timeSlot", max_students AS "maxStudents", is_active AS "isActive",
                  created_at AS "createdAt";`,
-      [name, code, teacherId || null, supervisorId || null, targetJuz, level, scheduleDays, timeSlot, maxStudents, isActive, id]
+      [name, code, resolvedTeacherId, resolvedSupervisorId, targetJuz, level, scheduleDays, timeSlot, maxStudents, isActive, id]
     );
 
     if (result.rows.length === 0) {
