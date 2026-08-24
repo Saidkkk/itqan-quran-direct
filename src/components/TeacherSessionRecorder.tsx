@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import confetti from 'canvas-confetti';
 import { 
   CheckCheck, 
@@ -48,15 +48,29 @@ export const TeacherSessionRecorder: React.FC<TeacherSessionRecorderProps> = ({
   sessions,
   onSaveSession
 }) => {
-  // Filter halaqat assigned to current teacher (or all if teacher has multiple)
-  const teacherCircles = halaqat.filter(h => h.teacherId === currentTeacher.id || currentTeacher.role === 'ADMIN');
-  const [selectedCircleId, setSelectedCircleId] = useState<string>(teacherCircles[0]?.id || halaqat[0]?.id || '');
+  // تصفية الحلقات: يظهر للمعلم حلقاته الخاصة فقط (أما الإداري/المشرف فتظهر له الحلقات المتاحة)
+  const visibleCircles = currentTeacher.role === 'TEACHER'
+    ? halaqat.filter(h => h.teacherId === currentTeacher.id)
+    : halaqat;
+
+  const [selectedCircleId, setSelectedCircleId] = useState<string>(visibleCircles[0]?.id || halaqat[0]?.id || '');
   const [sessionDate, setSessionDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [sessionNotes, setSessionNotes] = useState<string>('');
   const [expandedStudentId, setExpandedStudentId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeAttendanceFilter, setActiveAttendanceFilter] = useState<'ALL' | 'PRESENT' | 'ABSENT' | 'LATE' | 'EXCUSED'>('ALL');
   const [savedSuccessToast, setSavedSuccessToast] = useState(false);
+
+  // تحديث الحلقة المحددة تلقائياً عند تغيير المعلم الحالي أو الحلقات
+  useEffect(() => {
+    if (visibleCircles.length > 0) {
+      if (!visibleCircles.some(c => c.id === selectedCircleId)) {
+        handleCircleChange(visibleCircles[0].id);
+      }
+    } else {
+      setSelectedCircleId('');
+    }
+  }, [currentTeacher.id, halaqat]);
 
   // WhatsApp Modal State
   const [whatsAppModalStudent, setWhatsAppModalStudent] = useState<{
@@ -261,7 +275,26 @@ export const TeacherSessionRecorder: React.FC<TeacherSessionRecorderProps> = ({
     setTimeout(() => setSavedSuccessToast(false), 3000);
   };
 
-  const currentCircle = halaqat.find(h => h.id === selectedCircleId) || halaqat[0];
+  const currentCircle = visibleCircles.find(h => h.id === selectedCircleId) || visibleCircles[0];
+
+  // إذا لم يكن للمعلم أي حلقة مسندة
+  if (visibleCircles.length === 0) {
+    return (
+      <div className="max-w-2xl mx-auto py-12 px-4 text-center">
+        <div className="bg-white dark:bg-slate-900 rounded-3xl p-8 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+          <div className="w-16 h-16 rounded-2xl bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 flex items-center justify-center mx-auto text-3xl">
+            🕌
+          </div>
+          <h3 className="text-lg font-bold text-slate-900 dark:text-white">
+            لا توجد حلقات قرآنية مسندة للمعلم ({currentTeacher.name}) حالياً
+          </h3>
+          <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto leading-relaxed">
+            لم يتم تعيين أي حلقة قرآنية لك حتى الآن. يرجى من مدير النظام أو المشرف إسناد حلقة قرآنية لك من خلال «لوحة الإدارة» 👈 «إدارة الحلقات».
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   // Filtering for search and attendance filter
   const filteredStudents = circleStudents.filter(student => {
@@ -300,24 +333,32 @@ export const TeacherSessionRecorder: React.FC<TeacherSessionRecorderProps> = ({
               </h2>
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              المعلم: {currentTeacher.name} • المشرف: الشيخ د. عثمان الشنقيطي
+              المعلم: {currentTeacher.name} {visibleCircles.length > 1 ? `(لديك ${visibleCircles.length} حلقات مسندة)` : ''}
             </p>
           </div>
 
           {/* Quick Date and Circle Selectors */}
           <div className="flex flex-wrap items-center gap-2">
             <div className="flex-1 sm:flex-none">
-              <select
-                value={selectedCircleId}
-                onChange={(e) => handleCircleChange(e.target.value)}
-                className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-emerald-500 outline-none"
-              >
-                {halaqat.map(h => (
-                  <option key={h.id} value={h.id}>
-                    {h.name} ({h.level})
-                  </option>
-                ))}
-              </select>
+              {visibleCircles.length > 1 ? (
+                <select
+                  value={selectedCircleId}
+                  onChange={(e) => handleCircleChange(e.target.value)}
+                  className="w-full bg-slate-50 dark:bg-slate-800 border border-emerald-300 dark:border-emerald-700 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-emerald-500 outline-none"
+                >
+                  {visibleCircles.map(h => (
+                    <option key={h.id} value={h.id}>
+                      {h.name} ({h.level})
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <div className="px-3 py-2 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 rounded-xl text-xs font-bold text-emerald-800 dark:text-emerald-300 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                  <span>{currentCircle?.name}</span>
+                  <span className="text-[10px] text-emerald-600 dark:text-emerald-400">({currentCircle?.level})</span>
+                </div>
+              )}
             </div>
 
             <div className="w-36">
@@ -1018,11 +1059,21 @@ export const TeacherSessionRecorder: React.FC<TeacherSessionRecorderProps> = ({
           );
         })}
 
-        {filteredStudents.length === 0 && (
+        {circleStudents.length === 0 ? (
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-8 text-center text-slate-500 text-xs space-y-2">
+            <div className="text-2xl mb-1">👥</div>
+            <p className="font-bold text-sm text-slate-700 dark:text-slate-200">
+              لا يوجد طلاب مسجلون في هذه الحلقة ({currentCircle?.name}) حالياً
+            </p>
+            <p className="text-slate-400 max-w-sm mx-auto">
+              يمكن لمدير النظام أو المشرف تسجيل الطلاب وتنسيبهم لهذه الحلقة من تبويب «لوحة الإدارة» 👈 «إدارة الحلقات».
+            </p>
+          </div>
+        ) : filteredStudents.length === 0 ? (
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-8 text-center text-slate-500 text-sm">
             لا يوجد طلاب مطابقين للبحث في هذه الحلقة
           </div>
-        )}
+        ) : null}
       </div>
 
       {/* WhatsApp Modal */}
