@@ -58,10 +58,10 @@ export default function App() {
           api.getHalaqat(),
           api.getSessions()
         ]);
-        if (apiCountries?.length) { setCountriesState(apiCountries); setStoredCountries(apiCountries); }
-        if (apiUsers?.length) { setUsersState(apiUsers); setStoredUsers(apiUsers); }
-        if (apiHalaqat?.length) { setHalaqatState(apiHalaqat); setStoredHalaqat(apiHalaqat); }
-        if (apiSessions?.length) { setSessionsState(apiSessions); setStoredSessions(apiSessions); }
+        if (Array.isArray(apiCountries)) { setCountriesState(apiCountries); setStoredCountries(apiCountries); }
+        if (Array.isArray(apiUsers)) { setUsersState(apiUsers); setStoredUsers(apiUsers); }
+        if (Array.isArray(apiHalaqat)) { setHalaqatState(apiHalaqat); setStoredHalaqat(apiHalaqat); }
+        if (Array.isArray(apiSessions)) { setSessionsState(apiSessions); setStoredSessions(apiSessions); }
       } catch (e) {
         console.warn('Syncing with PostgreSQL API...', e);
       }

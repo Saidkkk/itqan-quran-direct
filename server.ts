@@ -149,21 +149,29 @@ async function initDatabaseSchema() {
         ('المملكة الأردنية الهاشمية', 'Jordan', 'JO'),
         ('الإمارات العربية المتحدة', 'United Arab Emirates', 'AE'),
         ('دولة الكويت', 'Kuwait', 'KW')
-      ON CONFLICT (code) DO NOTHING;
+      ON CONFLICT (code) DO UPDATE SET name_ar = EXCLUDED.name_ar, name_en = EXCLUDED.name_en;
     `);
 
-    // 2. بذر المستخدمين الأساسيين (مدير، مشرفين، معلمين) في قاعدة البيانات
+    // 2. بذر المستخدمين الـ 10 بالكامل (مدير، مشرفين، معلمين، طلاب) في قاعدة البيانات
     await pool.query(`
       INSERT INTO ${SCHEMA}.users (name, phone, email, role, is_active)
       VALUES 
         ('الشيخ عبد الله بن فهد المنصور', '+966501112233', 'admin@itqan-quran.org', 'ADMIN', true),
         ('الشيخ د. عثمان الشنقيطي', '+966502223344', 'othman.sh@itqan-quran.org', 'SUPERVISOR', true),
         ('الشيخ أحمد مصطفى المعصراوي', '+201003334455', 'maasarawi@itqan-quran.org', 'SUPERVISOR', true),
+        ('الشيخ محمود بن خليل الحافظ', '+966504445566', 'mahmoud.khalil@itqan-quran.org', 'TEACHER', true),
+        ('الشيخ إبراهيم الدوسري', '+966505556677', 'ibrahim.d@itqan-quran.org', 'TEACHER', true),
+        ('الشيخ حمزة بن عبد الله التازي', '+212606667788', 'hamza.tazi@itqan-quran.org', 'TEACHER', true),
         ('الشيخ عبد الرحمن بن ناصر', '+966503334455', 'abdulrahman@itqan-quran.org', 'TEACHER', true),
-        ('الشيخ بلال حمزة الإدريسي', '+212600112233', 'bilal.idrissi@itqan-quran.org', 'TEACHER', true),
-        ('الشيخ بدر الدين محمد', '+962791112233', 'badr.hanbali@itqan-quran.org', 'TEACHER', true),
-        ('الشيخ محمد صديق المنشاوي', '+201112223344', 'minshawi.study@itqan-quran.org', 'TEACHER', true)
-      ON CONFLICT (phone) DO NOTHING;
+        ('عمر بن عبد العزيز الحربي', '+966551122331', 'omar.harbi@student.itqan.org', 'STUDENT', true),
+        ('عبد الله بن أحمد السبيعي', '+966551122332', 'abdullah.ahmed@student.itqan.org', 'STUDENT', true),
+        ('يوسف بن طارق المنصوري', '+971501122333', 'youssef.m@student.itqan.org', 'STUDENT', true),
+        ('معاذ بن صالح الزهراني', '+966551122334', 'muadh.z@student.itqan.org', 'STUDENT', true)
+      ON CONFLICT (phone) DO UPDATE SET 
+        name = EXCLUDED.name,
+        email = EXCLUDED.email,
+        role = EXCLUDED.role,
+        is_active = EXCLUDED.is_active;
     `);
 
     // 3. بذر حلقات افتراضية أولية وربطها بالمعلمين
@@ -183,7 +191,7 @@ async function initDatabaseSchema() {
       WHERE h.teacher_id IS NULL;
     `);
 
-    console.log(`✅ سكيما ${SCHEMA} وجداول إتقان جاهزة ومتصلة 100% في PostgreSQL مع البيانات الأساسية!`);
+    console.log(`✅ سكيما ${SCHEMA} وجداول إتقان جاهزة ومتصلة 100% في PostgreSQL مع المستخدمين الـ 10 كاملين!`);
   } catch (err: any) {
     console.error('❌ خطأ أثناء تهيئة سكيما قاعدة البيانات:', err.message);
   }

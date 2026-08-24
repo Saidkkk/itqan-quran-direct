@@ -111,57 +111,78 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
     setIsAddDialectModalOpen(false);
   };
 
+  const [userActionError, setUserActionError] = useState<string | null>(null);
+  const [isSubmittingUser, setIsSubmittingUser] = useState(false);
+
   // Halaqah handler
   const handleAddHalaqah = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newHalaqahName.trim()) return;
 
-    const payload = {
-      name: newHalaqahName.trim(),
-      code: `HLQ-${Date.now().toString().slice(-4)}`,
-      teacherId: newHalaqahTeacherId || teachers[0]?.id || 'usr-tch-1',
-      supervisorId: newHalaqahSupervisorId || supervisors[0]?.id || 'usr-sup-1',
-      scheduleDays: ['الأحد', 'الثلاثاء', 'الخميس'],
-      timeSlot: newHalaqahTime,
-      targetJuz: newHalaqahTargetJuz,
-      level: newHalaqahLevel,
-      maxStudents: 15,
-      isActive: true,
-      createdAt: new Date().toISOString().split('T')[0]
-    };
+    try {
+      const payload = {
+        name: newHalaqahName.trim(),
+        code: `HLQ-${Date.now().toString().slice(-4)}`,
+        teacherId: newHalaqahTeacherId || teachers[0]?.id || 'usr-tch-1',
+        supervisorId: newHalaqahSupervisorId || supervisors[0]?.id || 'usr-sup-1',
+        scheduleDays: ['الأحد', 'الثلاثاء', 'الخميس'],
+        timeSlot: newHalaqahTime,
+        targetJuz: newHalaqahTargetJuz,
+        level: newHalaqahLevel,
+        maxStudents: 15,
+        isActive: true,
+        createdAt: new Date().toISOString().split('T')[0]
+      };
 
-    const savedHlq = await api.createHalaqah(payload);
-    setHalaqat([...halaqat, savedHlq]);
-    setNewHalaqahName('');
-    setIsAddHalaqahModalOpen(false);
+      const savedHlq = await api.createHalaqah(payload);
+      setHalaqat([...halaqat, savedHlq]);
+      setNewHalaqahName('');
+      setIsAddHalaqahModalOpen(false);
+    } catch (err: any) {
+      alert(err.message || 'حدث خطأ أثناء حفظ الحلقة');
+    }
   };
 
   // User handler
   const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newUserName.trim() || !newUserPhone.trim()) return;
+    setUserActionError(null);
+    if (!newUserName.trim() || !newUserPhone.trim()) {
+      setUserActionError('الاسم ورقم الهاتف حقول مطلوبة');
+      return;
+    }
 
-    const payload = {
-      name: newUserName.trim(),
-      email: newUserEmail.trim() || `${Date.now()}@itqan-quran.org`,
-      phone: newUserPhone.trim(),
-      role: newUserRole,
-      countryId: newUserCountryId || countries[0]?.id || '',
-      dialectId: newUserDialectId || '',
-      supervisorId: newUserRole === 'TEACHER' ? (newUserSupervisorId || supervisors[0]?.id) : undefined,
-      teacherId: newUserRole === 'STUDENT' ? (newUserTeacherId || teachers[0]?.id) : undefined,
-      isActive: true,
-      createdAt: new Date().toISOString().split('T')[0],
-      currentJuz: newUserRole === 'STUDENT' ? 30 : undefined,
-      currentSurah: newUserRole === 'STUDENT' ? 78 : undefined
-    };
+    setIsSubmittingUser(true);
+    try {
+      const payload = {
+        name: newUserName.trim(),
+        email: newUserEmail.trim() || `${Date.now()}@itqan-quran.org`,
+        phone: newUserPhone.trim(),
+        role: newUserRole,
+        countryId: newUserCountryId || countries[0]?.id || '',
+        dialectId: newUserDialectId || '',
+        supervisorId: newUserRole === 'TEACHER' ? (newUserSupervisorId || supervisors[0]?.id) : undefined,
+        teacherId: newUserRole === 'STUDENT' ? (newUserTeacherId || teachers[0]?.id) : undefined,
+        isActive: true,
+        createdAt: new Date().toISOString().split('T')[0],
+        currentJuz: newUserRole === 'STUDENT' ? 30 : undefined,
+        currentSurah: newUserRole === 'STUDENT' ? 78 : undefined
+      };
 
-    const savedUser = await api.createUser(payload);
-    setUsers([...users, savedUser]);
-    setNewUserName('');
-    setNewUserPhone('');
-    setNewUserEmail('');
-    setIsAddUserModalOpen(false);
+      const savedUser = await api.createUser(payload);
+      // تحديث القائمة فورياً من قاعدة البيانات
+      const refreshedUsers = await api.getUsers();
+      setUsers(refreshedUsers.length ? refreshedUsers : [...users, savedUser]);
+      
+      setNewUserName('');
+      setNewUserPhone('');
+      setNewUserEmail('');
+      setIsAddUserModalOpen(false);
+    } catch (err: any) {
+      setUserActionError(err.message || 'فشل حفظ المستخدم في قاعدة البيانات');
+    } finally {
+      setIsSubmittingUser(false);
+    }
   };
 
   const toggleUserStatus = (userId: string) => {
@@ -749,9 +770,21 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
               </div>
             </div>
 
+            {userActionError && (
+              <div className="p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 rounded-xl text-rose-700 dark:text-rose-300 text-xs font-semibold">
+                ⚠️ {userActionError}
+              </div>
+            )}
+
             <div className="flex justify-end gap-2 pt-2">
-              <button type="button" onClick={() => setIsAddUserModalOpen(false)} className="px-4 py-2 rounded-xl bg-slate-100 text-xs font-bold">إلغاء</button>
-              <button type="submit" className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold">إضافة المستخدم</button>
+              <button type="button" onClick={() => setIsAddUserModalOpen(false)} className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-bold">إلغاء</button>
+              <button 
+                type="submit" 
+                disabled={isSubmittingUser}
+                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold flex items-center gap-1.5"
+              >
+                {isSubmittingUser ? 'جاري الحفظ في PostgreSQL...' : 'إضافة المستخدم'}
+              </button>
             </div>
           </form>
         </div>
