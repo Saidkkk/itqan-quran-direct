@@ -463,16 +463,22 @@ app.post('/api/v1/auth/login', async (req: Request, res: Response) => {
       return res.status(403).json({ success: false, error: 'هذا الحساب معطل حالياً من قبل الإدارة، يرجى مراجعة المشرف' });
     }
 
-    // التحقق من كلمة المرور إذا تم إدخالها
+    // التحقق الصارم من تطابق كلمة المرور
     const storedPass = user.password_hash || '123456';
-    if (password && password.trim() !== '') {
-      const inputPass = password.trim();
-      if (inputPass !== storedPass && inputPass !== '123456') {
-        return res.status(401).json({
-          success: false,
-          error: 'كلمة المرور غير صحيحة. كلمة المرور الافتراضية للحسابات هي (123456)'
-        });
-      }
+    const inputPass = typeof password === 'string' ? password.trim() : '';
+
+    if (!inputPass) {
+      return res.status(400).json({
+        success: false,
+        error: 'يرجى إدخال كلمة المرور الخاصة بحسابك'
+      });
+    }
+
+    if (inputPass !== storedPass) {
+      return res.status(401).json({
+        success: false,
+        error: 'كلمة المرور غير صحيحة. يرجى إدخال كلمة المرور المعتمدة لحسابك.'
+      });
     }
 
     res.json({
@@ -634,8 +640,9 @@ app.post('/api/v1/auth/change-password', async (req: Request, res: Response) => 
 
     const user = userRes.rows[0];
     const currentHash = user.password_hash || '123456';
+    const inputOld = typeof oldPassword === 'string' ? oldPassword.trim() : '';
 
-    if (oldPassword && oldPassword.trim() !== currentHash && oldPassword.trim() !== '123456') {
+    if (inputOld !== currentHash) {
       return res.status(400).json({ success: false, error: 'كلمة المرور الحالية غير صحيحة' });
     }
 

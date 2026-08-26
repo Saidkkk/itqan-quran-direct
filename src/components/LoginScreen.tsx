@@ -17,7 +17,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   setIsDarkMode
 }) => {
   const [identifier, setIdentifier] = useState('');
-  const [password, setPassword] = useState('123456');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -31,6 +31,10 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
     const cleanIdent = identifier.trim();
     if (!cleanIdent) {
       setError('يرجى إدخال رقم الهاتف أو البريد الإلكتروني المعتمد');
+      return;
+    }
+    if (!password || password.trim() === '') {
+      setError('يرجى إدخال كلمة المرور');
       return;
     }
 
@@ -70,8 +74,9 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
           setLoading(false);
           return;
         }
-        if (password && password.trim() !== '' && password !== '123456') {
-          setError('كلمة المرور غير صحيحة. كلمة المرور الافتراضية هي 123456');
+        const expectedPass = found.password || '123456';
+        if (password.trim() !== expectedPass) {
+          setError('كلمة المرور غير صحيحة. يرجى إدخال كلمة المرور المعتمدة لحسابك.');
           setLoading(false);
           return;
         }

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   Building, 
   Check, 
@@ -2036,8 +2037,8 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
       {/* ─────────────────────────────────────────────────────────────
           MODAL: إستعادة وإعادة تعيين كلمة المرور بواسطة مدير النظام
       ───────────────────────────────────────────────────────────── */}
-      {resettingUser && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex min-h-full items-center justify-center p-4 sm:p-6 animate-in fade-in">
+      {resettingUser && typeof document !== 'undefined' && createPortal(
+        <div className="fixed inset-0 z-[9999] overflow-y-auto bg-slate-950/70 backdrop-blur-sm flex min-h-full items-center justify-center p-4 sm:p-6 animate-in fade-in">
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 sm:p-7 w-full max-w-md shadow-2xl relative my-auto">
             <button
               onClick={() => {
@@ -2146,7 +2147,8 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
               </div>
             </form>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

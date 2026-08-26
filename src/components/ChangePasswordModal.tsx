@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { KeyRound, Check, X, ShieldAlert, CheckCircle2, AlertCircle, Eye, EyeOff } from 'lucide-react';
 import { User } from '../types';
 import { api } from '../utils/api';
@@ -33,6 +34,11 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
     setError(null);
     setSuccess(null);
 
+    if (!oldPassword || oldPassword.trim() === '') {
+      setError('يرجى إدخال كلمة المرور الحالية.');
+      return;
+    }
+
     if (!newPassword || newPassword.trim().length < 4) {
       setError('كلمة المرور الجديدة يجب أن تتكون من 4 خانات أو أحرف على الأقل.');
       return;
@@ -47,7 +53,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
     try {
       const res = await api.changePassword(currentUser.id, oldPassword, newPassword);
       if (res.success) {
-        setSuccess('تم تغيير كلمة المرور بنجاح! يمكنك استخدامها في تسجيلات الدخول القادمة.');
+        setSuccess('تم تغيير كلمة المرور بنجاح! يرجى استخدام كلمة المرور الجديدة في تسجيلات الدخول القادمة.');
         setOldPassword('');
         setNewPassword('');
         setConfirmPassword('');
@@ -65,8 +71,8 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex min-h-full items-center justify-center p-4 sm:p-6 animate-in fade-in">
+  const modalContent = (
+    <div className="fixed inset-0 z-[9999] overflow-y-auto bg-slate-950/70 backdrop-blur-sm flex min-h-full items-center justify-center p-4 sm:p-6 animate-in fade-in duration-150">
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 sm:p-7 w-full max-w-md shadow-2xl relative my-auto">
         <button
           type="button"
@@ -213,4 +219,6 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
       </div>
     </div>
   );
+
+  return typeof document !== 'undefined' ? createPortal(modalContent, document.body) : null;
 };
