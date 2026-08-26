@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { LogIn, Moon, Sun, KeyRound, Phone, Shield, HelpCircle, CheckCircle2, ChevronDown, ChevronUp, UserCheck } from 'lucide-react';
-import { User, UserRole } from '../types';
+import { LogIn, Moon, Sun, KeyRound, Phone, Shield, HelpCircle, CheckCircle2, ChevronDown, ChevronUp, Eye, EyeOff } from 'lucide-react';
+import { User } from '../types';
 import { api } from '../utils/api';
 
 interface LoginScreenProps {
@@ -18,10 +18,10 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
 }) => {
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('123456');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showHelp, setShowHelp] = useState(false);
-  const [showDemoAccounts, setShowDemoAccounts] = useState(false);
 
   // Normalize phone number for comparison
   const cleanPhoneStr = (p: string) => p.replace(/[\s\-\+\(\)]/g, '');
@@ -85,24 +85,9 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
     }
   };
 
-  // Quick fill for testing
-  const handleSelectQuickAccount = (accountPhone: string, defaultRoleName: string) => {
-    setIdentifier(accountPhone);
-    setPassword('123456');
-    setError(null);
-  };
-
-  // Representative registered demo accounts
-  const demoAccounts = [
-    { role: 'ADMIN' as UserRole, title: 'مدير النظام', name: 'الشيخ عبد الله بن فهد المنصور', phone: '+966501112233', badge: 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300' },
-    { role: 'SUPERVISOR' as UserRole, title: 'المشرف العام', name: 'الشيخ د. عثمان الشنقيطي', phone: '+966502223344', badge: 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300' },
-    { role: 'TEACHER' as UserRole, title: 'معلم الحلقة', name: 'الشيخ محمود بن خليل الحافظ', phone: '+966504445566', badge: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' },
-    { role: 'STUDENT' as UserRole, title: 'طالب الحلقة', name: 'عمر بن عبد العزيز الحربي', phone: '+966551122331', badge: 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300' },
-  ];
-
   return (
-    <div className="min-h-screen bg-slate-100 dark:bg-slate-950 flex flex-col justify-center items-center p-4 sm:p-6 transition-colors font-sans select-none">
-      {/* Top right theme toggle */}
+    <div className="min-h-screen bg-slate-100 dark:bg-slate-950 flex flex-col justify-center items-center p-4 sm:p-6 transition-colors font-sans select-none overflow-y-auto">
+      {/* Top left theme toggle */}
       <div className="fixed top-4 left-4 z-20">
         <button
           onClick={() => setIsDarkMode(!isDarkMode)}
@@ -118,7 +103,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
         {/* Main Card */}
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-xl overflow-hidden">
           {/* Header Brand */}
-          <div className="p-7 text-center border-b border-slate-100 dark:border-slate-800/80 bg-linear-to-b from-emerald-50/50 to-transparent dark:from-emerald-950/20">
+          <div className="p-7 text-center border-b border-slate-100 dark:border-slate-800/80 bg-gradient-to-b from-emerald-50/50 to-transparent dark:from-emerald-950/20">
             <div className="w-14 h-14 rounded-2xl bg-emerald-600 text-white flex items-center justify-center text-2xl font-black mx-auto mb-3 shadow-lg shadow-emerald-600/20">
               📖
             </div>
@@ -178,22 +163,30 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
               </div>
               <div className="relative">
                 <input
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full pl-4 pr-10 py-3 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-2xl text-xs sm:text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition"
+                  className="w-full pr-10 pl-11 py-3 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-2xl text-xs sm:text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition"
                 />
                 <div className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
                   <KeyRound className="w-4 h-4" />
                 </div>
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 rounded-md transition cursor-pointer"
+                  title={showPassword ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور'}
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
               </div>
             </div>
 
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold rounded-2xl text-xs sm:text-sm shadow-md shadow-emerald-600/20 transition disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer mt-1"
+              className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold rounded-2xl text-xs sm:text-sm shadow-md shadow-emerald-600/20 transition disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer mt-2"
             >
               {loading ? (
                 <span>جاري التحقق من الصلاحيات...</span>
@@ -205,52 +198,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
               )}
             </button>
           </form>
-
-          {/* Quick Demo Accounts Toggle */}
-          <div className="border-t border-slate-100 dark:border-slate-800 p-4 bg-slate-50/50 dark:bg-slate-900/40">
-            <button
-              type="button"
-              onClick={() => setShowDemoAccounts(!showDemoAccounts)}
-              className="w-full flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-300 hover:text-emerald-600 dark:hover:text-emerald-400 transition cursor-pointer"
-            >
-              <span className="flex items-center gap-1.5">
-                <UserCheck className="w-4 h-4 text-emerald-600" />
-                <span>حسابات تجريبية سريعة لتجربة الأدوار</span>
-              </span>
-              {showDemoAccounts ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-            </button>
-
-            {showDemoAccounts && (
-              <div className="mt-3 space-y-2 pt-2 border-t border-slate-200/60 dark:border-slate-800">
-                <p className="text-[11px] text-slate-500 mb-2">
-                  اضغط على أي حساب لتعبئة بياناته المسجلة تلقائياً وتجربة صلاحياته:
-                </p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {demoAccounts.map((acc, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => handleSelectQuickAccount(acc.phone, acc.title)}
-                      className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/80 hover:border-emerald-500 dark:hover:border-emerald-500 text-right transition cursor-pointer flex flex-col gap-1 shadow-xs"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${acc.badge}`}>
-                          {acc.title}
-                        </span>
-                        <span className="text-[10px] text-emerald-600 font-mono">123456</span>
-                      </div>
-                      <span className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">
-                        {acc.name}
-                      </span>
-                      <span className="text-[11px] text-slate-400 font-mono" dir="ltr">
-                        {acc.phone}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
 
           {/* How do users know passwords accordion */}
           <div className="border-t border-slate-100 dark:border-slate-800 p-4 bg-slate-50 dark:bg-slate-900/60">
@@ -267,18 +214,18 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
             </button>
 
             {showHelp && (
-              <div className="mt-3 text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed space-y-2 bg-white dark:bg-slate-800/60 p-3 rounded-xl border border-slate-200 dark:border-slate-700">
+              <div className="mt-3 text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed space-y-2 bg-white dark:bg-slate-800/60 p-3.5 rounded-xl border border-slate-200 dark:border-slate-700 animate-in fade-in">
                 <div className="flex items-start gap-2">
                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
-                  <span><strong>تسجيل الحسابات:</strong> يتم إنشاء وتسجيل حسابات الطلاب والمعلمين بواسطة إدارة الحلقات والمشرفين من لوحة الإدارة.</span>
+                  <span><strong>تسجيل الحسابات:</strong> يتم إنشاء وتسجيل حسابات الطلاب والمعلمين والمشرفين بواسطة إدارة المركز.</span>
                 </div>
                 <div className="flex items-start gap-2">
                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
-                  <span><strong>كلمة المرور الافتراضية:</strong> عند إضافة أي مستخدم جديد، يتم تعيين كلمة المرور الموحدة وهي <code className="bg-slate-100 dark:bg-slate-700 px-1 py-0.5 rounded font-mono font-bold text-emerald-600">123456</code>.</span>
+                  <span><strong>كلمة المرور الافتراضية:</strong> عند إضافة أي حساب جديد، تُعيّن كلمة المرور الأولية <code className="bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded font-mono font-bold text-emerald-600">123456</code>.</span>
                 </div>
                 <div className="flex items-start gap-2">
                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
-                  <span><strong>طريقة الدخول:</strong> يدخل الطالب أو المعلم برقم هاتفه المعتمد مع كلمة المرور الافتراضية، أو يستلمها عبر إشعار رسائل المركز.</span>
+                  <span><strong>تغيير كلمة المرور:</strong> يمكن للمستخدم بعد الدخول تغيير كلمة مروره في أي وقت من زر القائمة العلوية.</span>
                 </div>
               </div>
             )}
@@ -288,7 +235,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
         {/* Footnote */}
         <p className="text-center text-[11px] text-slate-400 flex items-center justify-center gap-1.5">
           <Shield className="w-3.5 h-3.5 text-emerald-600" />
-          <span>منظومة محمية بقاعدة بيانات PostgreSQL • الوصول مقتصر على الحسابات المسجلة</span>
+          <span>منظومة محمية بقاعدة بيانات PostgreSQL • الوصول مقتصر على الحسابات المعتمدة</span>
         </p>
       </div>
     </div>
