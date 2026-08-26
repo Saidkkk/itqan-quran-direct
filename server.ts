@@ -62,9 +62,26 @@ async function initDatabaseSchema() {
   try {
     console.log(`⏳ جاري التحقق من تهيئة سكيما ${SCHEMA} وجداول إتقان في PostgreSQL...`);
     
+    // 1. ترقية أعمدة المستخدمين تلقائياً وفورياً إن كان الجدول موجوداً
+    try {
+      await pool.query(`ALTER TABLE ${SCHEMA}.users ADD COLUMN IF NOT EXISTS gender VARCHAR(10) DEFAULT 'MALE';`);
+      await pool.query(`ALTER TABLE ${SCHEMA}.users ADD COLUMN IF NOT EXISTS birth_date DATE;`);
+      console.log(`✅ تم التأكد من وجود أعمدة gender و birth_date في ${SCHEMA}.users بنجاح`);
+    } catch (e: any) {
+      console.warn('تنبيه أثناء إضافة أعمدة المستخدمين:', e.message);
+    }
+
     // إنشاء السكيما وتفعيل uuid
-    await pool.query(`CREATE SCHEMA IF NOT EXISTS ${SCHEMA};`);
-    await pool.query(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp";`);
+    try {
+      await pool.query(`CREATE SCHEMA IF NOT EXISTS ${SCHEMA};`);
+    } catch (e: any) {
+      console.warn('تنبيه السكيما:', e.message);
+    }
+    try {
+      await pool.query(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp";`);
+    } catch (e: any) {
+      // قد لا يملك المستخدم صلاحية superuser
+    }
 
     // جدول الدول
     await pool.query(`
@@ -432,6 +449,16 @@ app.delete('/api/v1/dialects/:id', async (req: Request, res: Response) => {
 // 3. مسارات المستخدمين وتسجيل الدخول (Users & Auth REST API)
 // =========================================================================
 
+async function ensureUserColumns() {
+  if (!pool) return;
+  try {
+    await pool.query(`ALTER TABLE ${SCHEMA}.users ADD COLUMN IF NOT EXISTS gender VARCHAR(10) DEFAULT 'MALE';`);
+    await pool.query(`ALTER TABLE ${SCHEMA}.users ADD COLUMN IF NOT EXISTS birth_date DATE;`);
+  } catch (e: any) {
+    console.warn('ensureUserColumns notice:', e.message);
+  }
+}
+
 // تسجيل الدخول (برقم الهاتف أو البريد الإلكتروني)
 app.post('/api/v1/auth/login', async (req: Request, res: Response) => {
   const { identifier, password } = req.body;
@@ -447,18 +474,38 @@ app.post('/api/v1/auth/login', async (req: Request, res: Response) => {
     const cleanIdentifier = identifier.trim();
     const digitsOnly = cleanIdentifier.replace(/[^0-9]/g, '');
 
-    // البحث الصارم عن المستخدم المسجل برقم الهاتف الدقيق أو البريد الإلكتروني
-    const userRes = await pool.query(
-      `SELECT id, name, phone, email, password_hash, role, gender, TO_CHAR(birth_date, 'YYYY-MM-DD') AS "birthDate",
-              country_id AS "countryId", dialect_id AS "dialectId",
-              supervisor_id AS "supervisorId", is_active AS "isActive", created_at AS "createdAt"
-       FROM ${SCHEMA}.users 
-       WHERE LOWER(email) = LOWER($1)
-          OR phone = $1
-          OR ($2 <> '' AND LENGTH($2) >= 8 AND REPLACE(REPLACE(REPLACE(phone, ' ', ''), '-', ''), '+', '') LIKE '%' || $2)
-       LIMIT 1;`,
-      [cleanIdentifier, digitsOnly.length >= 8 ? digitsOnly.slice(-9) : '']
-    );
+    // البحث الصارم عن المستخدم المسجل برقم الهاتف الدقيق أو البريد الإلكتروني مع معالجة ذكية للأعمدة
+    let userRes;
+    try {
+      userRes = await pool.query(
+        `SELECT id, name, phone, email, password_hash, role, gender, TO_CHAR(birth_date, 'YYYY-MM-DD') AS "birthDate",
+                country_id AS "countryId", dialect_id AS "dialectId",
+                supervisor_id AS "supervisorId", is_active AS "isActive", created_at AS "createdAt"
+         FROM ${SCHEMA}.users 
+         WHERE LOWER(email) = LOWER($1)
+            OR phone = $1
+            OR ($2 <> '' AND LENGTH($2) >= 8 AND REPLACE(REPLACE(REPLACE(phone, ' ', ''), '-', ''), '+', '') LIKE '%' || $2)
+         LIMIT 1;`,
+        [cleanIdentifier, digitsOnly.length >= 8 ? digitsOnly.slice(-9) : '']
+      );
+    } catch (dbErr: any) {
+      if (dbErr.code === '42703' || dbErr.message.includes('gender') || dbErr.message.includes('birth_date')) {
+        await ensureUserColumns();
+        userRes = await pool.query(
+          `SELECT id, name, phone, email, password_hash, role,
+                  country_id AS "countryId", dialect_id AS "dialectId",
+                  supervisor_id AS "supervisorId", is_active AS "isActive", created_at AS "createdAt"
+           FROM ${SCHEMA}.users 
+           WHERE LOWER(email) = LOWER($1)
+              OR phone = $1
+              OR ($2 <> '' AND LENGTH($2) >= 8 AND REPLACE(REPLACE(REPLACE(phone, ' ', ''), '-', ''), '+', '') LIKE '%' || $2)
+           LIMIT 1;`,
+          [cleanIdentifier, digitsOnly.length >= 8 ? digitsOnly.slice(-9) : '']
+        );
+      } else {
+        throw dbErr;
+      }
+    }
 
     if (userRes.rows.length === 0) {
       return res.status(404).json({ 
@@ -520,14 +567,30 @@ app.post('/api/v1/auth/login', async (req: Request, res: Response) => {
 app.get('/api/v1/users', async (req: Request, res: Response) => {
   if (!pool) return res.json([]);
   try {
-    const result = await pool.query(
-      `SELECT id, name, phone, email, role, gender, TO_CHAR(birth_date, 'YYYY-MM-DD') AS "birthDate",
-              country_id AS "countryId", dialect_id AS "dialectId",
-              supervisor_id AS "supervisorId", is_active AS "isActive", created_at AS "createdAt"
-       FROM ${SCHEMA}.users 
-       ORDER BY created_at DESC;`
-    );
-    res.json(result.rows);
+    try {
+      const result = await pool.query(
+        `SELECT id, name, phone, email, role, gender, TO_CHAR(birth_date, 'YYYY-MM-DD') AS "birthDate",
+                country_id AS "countryId", dialect_id AS "dialectId",
+                supervisor_id AS "supervisorId", is_active AS "isActive", created_at AS "createdAt"
+         FROM ${SCHEMA}.users 
+         ORDER BY created_at DESC;`
+      );
+      res.json(result.rows);
+    } catch (dbErr: any) {
+      if (dbErr.code === '42703' || dbErr.message.includes('gender') || dbErr.message.includes('birth_date')) {
+        await ensureUserColumns();
+        const fallbackRes = await pool.query(
+          `SELECT id, name, phone, email, role,
+                  country_id AS "countryId", dialect_id AS "dialectId",
+                  supervisor_id AS "supervisorId", is_active AS "isActive", created_at AS "createdAt"
+           FROM ${SCHEMA}.users 
+           ORDER BY created_at DESC;`
+        );
+        res.json(fallbackRes.rows.map(u => ({ ...u, gender: u.gender || 'MALE', birthDate: u.birthDate || null })));
+      } else {
+        throw dbErr;
+      }
+    }
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
