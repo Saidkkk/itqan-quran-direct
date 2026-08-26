@@ -141,8 +141,22 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     const circleStds = students.filter(s => circleEnrolledIds.includes(s.id));
 
     const rows = circleStds.map(st => {
+      let ageStr = '-';
+      if (st.birthDate) {
+        const b = new Date(st.birthDate);
+        if (!isNaN(b.getTime())) {
+          const today = new Date();
+          let age = today.getFullYear() - b.getFullYear();
+          const m = today.getMonth() - b.getMonth();
+          if (m < 0 || (m === 0 && today.getDate() < b.getDate())) age--;
+          ageStr = `${age} سنة (${st.birthDate})`;
+        }
+      }
+
       return [
         st.name,
+        st.gender === 'FEMALE' ? 'أنثى' : 'ذكر',
+        ageStr,
         st.phone,
         `جزء ${st.currentJuz || 30}`,
         getSurahName(st.currentSurah || 67),
@@ -155,7 +169,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     exportToCSV(
       `تقرير_إنتاجية_${targetCircle?.name.replace(/\s+/g, '_') || 'الحلقة'}`,
       rows,
-      ['اسم الطالب', 'رقم الهاتف', 'الجزء الحالي', 'السورة الحالية', 'إجمالي الآيات المحفوظة', 'نسبة الحضور', 'حالة الانتظام']
+      ['اسم الطالب', 'الجنس', 'العمر وتاريخ الميلاد', 'رقم الهاتف', 'الجزء الحالي', 'السورة الحالية', 'إجمالي الآيات المحفوظة', 'نسبة الحضور', 'حالة الانتظام']
     );
   };
 
@@ -226,7 +240,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
         <div className="space-y-6 animate-in fade-in duration-150">
           {/* Selector & Actions */}
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 shadow-xs flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               {isStudent ? (
                 <div className="flex items-center gap-2">
                   <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
@@ -246,18 +260,51 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                   >
                     {students.map(s => (
                       <option key={s.id} value={s.id}>
-                        {s.name} ({s.phone})
+                        {s.name} ({s.gender === 'FEMALE' ? 'أنثى' : 'ذكر'}) - {s.phone}
                       </option>
                     ))}
                   </select>
                 </>
               )}
+
+              {/* بطاقة تعريفية سريعة للجنس وتاريخ الميلاد */}
+              {(() => {
+                const isFemale = currentSelectedStudent.gender === 'FEMALE';
+                let age: number | null = null;
+                if (currentSelectedStudent.birthDate) {
+                  const bDate = new Date(currentSelectedStudent.birthDate);
+                  if (!isNaN(bDate.getTime())) {
+                    const today = new Date();
+                    age = today.getFullYear() - bDate.getFullYear();
+                    const m = today.getMonth() - bDate.getMonth();
+                    if (m < 0 || (m === 0 && today.getDate() < bDate.getDate())) age--;
+                  }
+                }
+
+                return (
+                  <div className="flex items-center gap-2">
+                    <span className={`px-2.5 py-1 rounded-lg text-xs font-bold border ${
+                      isFemale 
+                        ? 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/60 dark:text-rose-300 dark:border-rose-900' 
+                        : 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/60 dark:text-blue-300 dark:border-blue-900'
+                    }`}>
+                      {isFemale ? '👩 أنثى (بنات)' : '👨 ذكر (بنين)'}
+                    </span>
+
+                    {currentSelectedStudent.birthDate && (
+                      <span className="text-xs text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 font-mono">
+                        🎂 {currentSelectedStudent.birthDate} {age !== null && <strong className="font-sans text-emerald-600 dark:text-emerald-400">({age} سنة)</strong>}
+                      </span>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
 
             <div className="flex items-center gap-2">
               <button
                 onClick={handleExportStudentCSV}
-                className="flex items-center gap-1.5 px-3.5 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold border border-slate-200 dark:border-slate-700 transition"
+                className="flex items-center gap-1.5 px-3.5 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold border border-slate-200 dark:border-slate-700 transition cursor-pointer"
               >
                 <Download className="w-4 h-4" />
                 <span>تصدير Excel / CSV</span>
@@ -265,7 +312,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
 
               <button
                 onClick={() => window.print()}
-                className="flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-600/20 transition"
+                className="flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-600/20 transition cursor-pointer"
               >
                 <Printer className="w-4 h-4" />
                 <span>طباعة التقرير الرسمي</span>

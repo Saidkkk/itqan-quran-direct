@@ -98,6 +98,8 @@ async function initDatabaseSchema() {
         email VARCHAR(120) UNIQUE,
         password_hash VARCHAR(255) NOT NULL DEFAULT '123456',
         role VARCHAR(20) NOT NULL DEFAULT 'STUDENT',
+        gender VARCHAR(10) DEFAULT 'MALE',
+        birth_date DATE,
         country_id UUID REFERENCES ${SCHEMA}.countries(id) ON DELETE SET NULL,
         dialect_id UUID REFERENCES ${SCHEMA}.dialects(id) ON DELETE SET NULL,
         supervisor_id UUID REFERENCES ${SCHEMA}.users(id) ON DELETE SET NULL,
@@ -105,6 +107,12 @@ async function initDatabaseSchema() {
         created_at TIMESTAMPTZ DEFAULT NOW(),
         updated_at TIMESTAMPTZ DEFAULT NOW()
       );
+    `);
+
+    // ترقية أعمدة المستخدمين تلقائياً إذا كانت السكيما موجودة مسبقاً
+    await pool.query(`
+      ALTER TABLE ${SCHEMA}.users ADD COLUMN IF NOT EXISTS gender VARCHAR(10) DEFAULT 'MALE';
+      ALTER TABLE ${SCHEMA}.users ADD COLUMN IF NOT EXISTS birth_date DATE;
     `);
 
     // جدول الحلقات
@@ -441,7 +449,8 @@ app.post('/api/v1/auth/login', async (req: Request, res: Response) => {
 
     // البحث الصارم عن المستخدم المسجل برقم الهاتف الدقيق أو البريد الإلكتروني
     const userRes = await pool.query(
-      `SELECT id, name, phone, email, password_hash, role, country_id AS "countryId", dialect_id AS "dialectId",
+      `SELECT id, name, phone, email, password_hash, role, gender, TO_CHAR(birth_date, 'YYYY-MM-DD') AS "birthDate",
+              country_id AS "countryId", dialect_id AS "dialectId",
               supervisor_id AS "supervisorId", is_active AS "isActive", created_at AS "createdAt"
        FROM ${SCHEMA}.users 
        WHERE LOWER(email) = LOWER($1)
@@ -490,6 +499,8 @@ app.post('/api/v1/auth/login', async (req: Request, res: Response) => {
         phone: user.phone,
         email: user.email,
         role: user.role,
+        gender: user.gender || 'MALE',
+        birthDate: user.birthDate || null,
         countryId: user.countryId,
         dialectId: user.dialectId,
         supervisorId: user.supervisorId,
@@ -510,7 +521,8 @@ app.get('/api/v1/users', async (req: Request, res: Response) => {
   if (!pool) return res.json([]);
   try {
     const result = await pool.query(
-      `SELECT id, name, phone, email, role, country_id AS "countryId", dialect_id AS "dialectId",
+      `SELECT id, name, phone, email, role, gender, TO_CHAR(birth_date, 'YYYY-MM-DD') AS "birthDate",
+              country_id AS "countryId", dialect_id AS "dialectId",
               supervisor_id AS "supervisorId", is_active AS "isActive", created_at AS "createdAt"
        FROM ${SCHEMA}.users 
        ORDER BY created_at DESC;`
@@ -524,13 +536,15 @@ app.get('/api/v1/users', async (req: Request, res: Response) => {
 // إضافة مستخدم جديد (إنشاء مستخدم مستقل تماماً)
 app.post('/api/v1/users', async (req: Request, res: Response) => {
   if (!pool) return res.status(500).json({ error: 'Database not connected' });
-  const { name, phone, email, password, role, countryId, dialectId, supervisorId } = req.body;
+  const { name, phone, email, password, role, gender, birthDate, countryId, dialectId, supervisorId } = req.body;
 
   try {
     const cleanPhone = (phone || '').toString().trim();
     const cleanName = (name || '').toString().trim();
     const cleanEmail = email && typeof email === 'string' && email.trim() !== '' ? email.trim() : null;
     const cleanRole = (role || 'STUDENT').toString().toUpperCase();
+    const cleanGender = gender === 'FEMALE' ? 'FEMALE' : 'MALE';
+    const cleanBirthDate = birthDate && typeof birthDate === 'string' && birthDate.trim() !== '' ? birthDate.trim() : null;
 
     if (!cleanPhone || !cleanName) {
       return res.status(400).json({ error: 'الاسم ورقم الهاتف مطلوبان' });
@@ -567,9 +581,10 @@ app.post('/api/v1/users', async (req: Request, res: Response) => {
     }
 
     const result = await pool.query(
-      `INSERT INTO ${SCHEMA}.users (name, phone, email, password_hash, role, country_id, dialect_id, supervisor_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       RETURNING id, name, phone, email, role, country_id AS "countryId", dialect_id AS "dialectId",
+      `INSERT INTO ${SCHEMA}.users (name, phone, email, password_hash, role, gender, birth_date, country_id, dialect_id, supervisor_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       RETURNING id, name, phone, email, role, gender, TO_CHAR(birth_date, 'YYYY-MM-DD') AS "birthDate",
+                 country_id AS "countryId", dialect_id AS "dialectId",
                  supervisor_id AS "supervisorId", is_active AS "isActive", created_at AS "createdAt";`,
       [
         cleanName,
@@ -577,6 +592,8 @@ app.post('/api/v1/users', async (req: Request, res: Response) => {
         cleanEmail,
         password || '123456',
         cleanRole,
+        cleanGender,
+        cleanBirthDate,
         resolvedCountryId,
         null, // dialect_id
         resolvedSupervisorId
@@ -595,21 +612,37 @@ app.post('/api/v1/users', async (req: Request, res: Response) => {
 app.put('/api/v1/users/:id', async (req: Request, res: Response) => {
   if (!pool) return res.status(500).json({ error: 'Database not connected' });
   const { id } = req.params;
-  const { name, phone, email, role, isActive } = req.body;
+  const { name, phone, email, role, gender, birthDate, isActive } = req.body;
 
   try {
+    const cleanGender = gender ? (gender === 'FEMALE' ? 'FEMALE' : 'MALE') : null;
+    const cleanBirthDate = birthDate !== undefined ? (birthDate ? birthDate : null) : undefined;
+
     const result = await pool.query(
       `UPDATE ${SCHEMA}.users
        SET name = COALESCE($1, name),
            phone = COALESCE($2, phone),
            email = COALESCE($3, email),
            role = COALESCE($4, role),
-           is_active = COALESCE($5, is_active),
+           gender = COALESCE($5, gender),
+           birth_date = CASE WHEN $6::BOOLEAN THEN $7::DATE ELSE birth_date END,
+           is_active = COALESCE($8, is_active),
            updated_at = NOW()
-       WHERE id = $6
-       RETURNING id, name, phone, email, role, country_id AS "countryId", dialect_id AS "dialectId",
+       WHERE id = $9
+       RETURNING id, name, phone, email, role, gender, TO_CHAR(birth_date, 'YYYY-MM-DD') AS "birthDate",
+                 country_id AS "countryId", dialect_id AS "dialectId",
                  supervisor_id AS "supervisorId", is_active AS "isActive", created_at AS "createdAt";`,
-      [name, phone, email, role, isActive, id]
+      [
+        name,
+        phone,
+        email,
+        role,
+        cleanGender,
+        cleanBirthDate !== undefined,
+        cleanBirthDate || null,
+        isActive,
+        id
+      ]
     );
 
     if (result.rows.length === 0) {

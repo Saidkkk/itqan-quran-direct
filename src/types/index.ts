@@ -28,11 +28,14 @@ export interface User {
   email: string;
   phone: string;
   role: UserRole;
+  gender?: 'MALE' | 'FEMALE';
+  birthDate?: string; // YYYY-MM-DD
   countryId: string;
   dialectId: string;
   supervisorId?: string; // For teachers: their assigned supervisor
   teacherId?: string;    // For students: their primary teacher
   avatarUrl?: string;
+  password?: string;
   isActive: boolean;
   createdAt: string;
   notes?: string;

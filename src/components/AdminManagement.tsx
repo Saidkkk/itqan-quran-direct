@@ -114,6 +114,9 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
   const [newUserEmail, setNewUserEmail] = useState('');
   const [newUserPhone, setNewUserPhone] = useState('');
   const [newUserRole, setNewUserRole] = useState<UserRole>('STUDENT');
+  const [newUserGender, setNewUserGender] = useState<'MALE' | 'FEMALE'>('MALE');
+  const [newUserBirthDate, setNewUserBirthDate] = useState('');
+  const [userGenderFilter, setUserGenderFilter] = useState<'ALL' | 'MALE' | 'FEMALE'>('ALL');
   const [newUserCountryId, setNewUserCountryId] = useState(countries[0]?.id || '');
   const [newUserDialectId, setNewUserDialectId] = useState(countries[0]?.dialects[0]?.id || '');
   const [newUserSupervisorId, setNewUserSupervisorId] = useState('');
@@ -121,6 +124,20 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
   const [newUserHalaqahId, setNewUserHalaqahId] = useState(halaqat[0]?.id || '');
 
   const [editingUser, setEditingUser] = useState<User | null>(null);
+
+  // Helper to calculate age from birthDate
+  const calculateAge = (birthDateStr?: string) => {
+    if (!birthDateStr) return null;
+    const birth = new Date(birthDateStr);
+    if (isNaN(birth.getTime())) return null;
+    const today = new Date();
+    let age = today.getFullYear() - birth.getFullYear();
+    const m = today.getMonth() - birth.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) {
+      age--;
+    }
+    return age >= 0 ? age : null;
+  };
 
   // Reset Password State (Admin capability)
   const [resettingUser, setResettingUser] = useState<User | null>(null);
@@ -476,6 +493,8 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
         email: newUserEmail.trim() || `${Date.now()}@itqan-quran.org`,
         phone: newUserPhone.trim(),
         role: newUserRole,
+        gender: newUserGender,
+        birthDate: newUserBirthDate.trim() || undefined,
         countryId: newUserCountryId || countries[0]?.id || '',
         dialectId: newUserDialectId || '',
         supervisorId: newUserRole === 'TEACHER' ? (newUserSupervisorId || supervisors[0]?.id) : undefined,
@@ -509,6 +528,8 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
       setNewUserName('');
       setNewUserPhone('');
       setNewUserEmail('');
+      setNewUserGender('MALE');
+      setNewUserBirthDate('');
       setIsAddUserModalOpen(false);
     } catch (err: any) {
       setUserActionError(err.message || 'فشل حفظ المستخدم في قاعدة البيانات');
@@ -527,6 +548,8 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
         phone: editingUser.phone.trim(),
         email: editingUser.email?.trim(),
         role: editingUser.role,
+        gender: editingUser.gender || 'MALE',
+        birthDate: editingUser.birthDate || undefined,
         isActive: editingUser.isActive
       });
 
@@ -1014,19 +1037,113 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
       ───────────────────────────────────────────────────────────── */}
       {activeTab === 'USERS' && (
         <div className="space-y-6 animate-in fade-in duration-150">
-          <div className="flex items-center justify-between">
-            <h3 className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-2">
-              <Users className="w-4 h-4 text-emerald-600" />
-              <span>دليل المستخدمين وإدارة الصلاحيات (RBAC)</span>
-            </h3>
+          {/* إحصائيات سريعة للمستخدمين والجنس */}
+          {(() => {
+            const maleCount = users.filter(u => (u.gender || 'MALE') === 'MALE').length;
+            const femaleCount = users.filter(u => u.gender === 'FEMALE').length;
+            const studentAges = users
+              .filter(u => u.role === 'STUDENT' && u.birthDate)
+              .map(u => calculateAge(u.birthDate))
+              .filter((age): age is number => age !== null);
+            const avgStudentAge = studentAges.length > 0
+              ? (studentAges.reduce((acc, a) => acc + a, 0) / studentAges.length).toFixed(1)
+              : null;
+
+            return (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
+                  <div className="text-[11px] text-slate-500 font-medium">إجمالي المستخدمين</div>
+                  <div className="text-xl font-bold text-slate-900 dark:text-white mt-1">{users.length}</div>
+                  <div className="text-[10px] text-slate-400 mt-0.5">{students.length} طالب • {teachers.length} معلم</div>
+                </div>
+
+                <div className="bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-blue-200 dark:border-blue-900/50 shadow-xs">
+                  <div className="text-[11px] text-blue-600 dark:text-blue-400 font-medium flex items-center justify-between">
+                    <span>بنين (ذكور) 👨</span>
+                    <span className="text-[10px] font-bold bg-blue-50 dark:bg-blue-950 px-1.5 py-0.5 rounded">
+                      {users.length > 0 ? Math.round((maleCount / users.length) * 100) : 0}%
+                    </span>
+                  </div>
+                  <div className="text-xl font-bold text-blue-700 dark:text-blue-300 mt-1">{maleCount}</div>
+                  <div className="text-[10px] text-slate-400 mt-0.5">من إجمالي المستخدمين</div>
+                </div>
+
+                <div className="bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-rose-200 dark:border-rose-900/50 shadow-xs">
+                  <div className="text-[11px] text-rose-600 dark:text-rose-400 font-medium flex items-center justify-between">
+                    <span>بنات (إناث) 👩</span>
+                    <span className="text-[10px] font-bold bg-rose-50 dark:bg-rose-950 px-1.5 py-0.5 rounded">
+                      {users.length > 0 ? Math.round((femaleCount / users.length) * 100) : 0}%
+                    </span>
+                  </div>
+                  <div className="text-xl font-bold text-rose-700 dark:text-rose-300 mt-1">{femaleCount}</div>
+                  <div className="text-[10px] text-slate-400 mt-0.5">من إجمالي المستخدمين</div>
+                </div>
+
+                <div className="bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-emerald-200 dark:border-emerald-900/50 shadow-xs">
+                  <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">متوسط أعمار الطلاب</div>
+                  <div className="text-xl font-bold text-emerald-700 dark:text-emerald-300 mt-1">
+                    {avgStudentAge ? `${avgStudentAge} سنة` : 'غير متوفر'}
+                  </div>
+                  <div className="text-[10px] text-slate-400 mt-0.5">{studentAges.length} طالب محدد تاريخ ميلاده</div>
+                </div>
+              </div>
+            );
+          })()}
+
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <h3 className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-2">
+                <Users className="w-4 h-4 text-emerald-600" />
+                <span>دليل المستخدمين وإدارة الصلاحيات (RBAC)</span>
+              </h3>
+
+              {/* أزرار تصفية الجنس */}
+              <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
+                <button
+                  type="button"
+                  onClick={() => setUserGenderFilter('ALL')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition ${
+                    userGenderFilter === 'ALL'
+                      ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs'
+                      : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
+                  }`}
+                >
+                  الكل
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setUserGenderFilter('MALE')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 ${
+                    userGenderFilter === 'MALE'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-slate-500 hover:text-blue-600 dark:text-slate-400'
+                  }`}
+                >
+                  <span>بنين (ذكور)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setUserGenderFilter('FEMALE')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 ${
+                    userGenderFilter === 'FEMALE'
+                      ? 'bg-rose-600 text-white shadow-xs'
+                      : 'text-slate-500 hover:text-rose-600 dark:text-slate-400'
+                  }`}
+                >
+                  <span>بنات (إناث)</span>
+                </button>
+              </div>
+            </div>
 
             <button
               onClick={() => {
                 setNewUserRole('STUDENT');
+                setNewUserGender('MALE');
+                setNewUserBirthDate('');
                 setNewUserHalaqahId(halaqat[0]?.id || '');
                 setIsAddUserModalOpen(true);
               }}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-600/20 transition"
+              className="flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-600/20 transition cursor-pointer"
             >
               <UserPlus className="w-4 h-4" />
               <span>إضافة مستخدم جديد</span>
@@ -1039,6 +1156,7 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
                 <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-600 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-800">
                   <tr>
                     <th className="p-3">الاسم والمستخدم</th>
+                    <th className="p-3">الجنس وتاريخ الميلاد</th>
                     <th className="p-3">الدور / الصلاحية</th>
                     <th className="p-3">رقم الهاتف</th>
                     <th className="p-3">الحلقة القرآنية المرتبطة</th>
@@ -1048,7 +1166,13 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {users.map(u => {
+                  {users
+                    .filter(u => {
+                      if (userGenderFilter === 'ALL') return true;
+                      const uGen = u.gender || 'MALE';
+                      return uGen === userGenderFilter;
+                    })
+                    .map(u => {
                     const country = countries.find(c => c.id === u.countryId || c.code === u.countryId);
                     const dialect = country?.dialects.find(d => d.id === u.dialectId);
 
@@ -1064,6 +1188,9 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
                       STUDENT: { label: 'طالب (Student)', color: 'bg-emerald-100 text-emerald-800 border-emerald-200' }
                     };
 
+                    const isFemale = u.gender === 'FEMALE';
+                    const age = calculateAge(u.birthDate);
+
                     return (
                       <tr key={u.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
                         <td className="p-3">
@@ -1071,6 +1198,30 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
                             {u.name}
                           </div>
                           <div className="text-[11px] text-slate-400">{u.email}</div>
+                        </td>
+                        <td className="p-3">
+                          <div className="flex flex-col gap-1">
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border w-fit ${
+                              isFemale 
+                                ? 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/60 dark:text-rose-300 dark:border-rose-900' 
+                                : 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/60 dark:text-blue-300 dark:border-blue-900'
+                            }`}>
+                              <span>{isFemale ? '👩 أنثى (بنات)' : '👨 ذكر (بنين)'}</span>
+                            </span>
+                            {u.birthDate ? (
+                              <div className="text-[11px] text-slate-600 dark:text-slate-300 flex items-center gap-1 font-mono">
+                                <Calendar className="w-3 h-3 text-slate-400" />
+                                <span>{u.birthDate}</span>
+                                {age !== null && (
+                                  <span className="text-[10px] bg-slate-100 dark:bg-slate-800 px-1.5 py-0.2 rounded text-slate-500 dark:text-slate-400 font-sans">
+                                    ({age} سنة)
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-[10px] text-slate-400 italic">تاريخ الميلاد غير مسجل</span>
+                            )}
+                          </div>
                         </td>
                         <td className="p-3">
                           <span className={`px-2 py-0.5 rounded-md border text-[11px] font-bold ${roleBadges[u.role].color}`}>
@@ -1114,7 +1265,7 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
                                 setResetPasswordValue('123456');
                                 setResetResultMsg(null);
                               }}
-                              className="p-1.5 text-slate-400 hover:text-amber-600 dark:hover:text-amber-400 rounded-lg hover:bg-amber-50 dark:hover:bg-amber-950/40 transition"
+                              className="p-1.5 text-slate-400 hover:text-amber-600 dark:hover:text-amber-400 rounded-lg hover:bg-amber-50 dark:hover:bg-amber-950/40 transition cursor-pointer"
                               title="إعادة ضبط وتعيين كلمة المرور"
                             >
                               <KeyRound className="w-3.5 h-3.5" />
@@ -1122,7 +1273,7 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
 
                             <button
                               onClick={() => setEditingUser(u)}
-                              className="p-1.5 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-950/40 transition"
+                              className="p-1.5 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-950/40 transition cursor-pointer"
                               title="تعديل بيانات المستخدم"
                             >
                               <Edit2 className="w-3.5 h-3.5" />
@@ -1130,7 +1281,7 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
 
                             <button
                               onClick={() => toggleUserStatus(u.id)}
-                              className={`px-2 py-1 rounded-md text-[10px] font-bold transition ${
+                              className={`px-2 py-1 rounded-md text-[10px] font-bold transition cursor-pointer ${
                                 u.isActive
                                   ? 'bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 dark:bg-slate-800 dark:hover:bg-rose-950'
                                   : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
@@ -1141,7 +1292,7 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
 
                             <button
                               onClick={() => requestDeleteUser(u)}
-                              className="p-1.5 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 transition"
+                              className="p-1.5 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer"
                               title="حذف المستخدم (مع فحص التبعيات)"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
@@ -1542,6 +1693,38 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
               </div>
             </div>
 
+            {/* الجنس وتاريخ الميلاد */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-semibold block mb-1">الجنس:</label>
+                <select
+                  value={editingUser.gender || 'MALE'}
+                  onChange={e => setEditingUser({ ...editingUser, gender: e.target.value as 'MALE' | 'FEMALE' })}
+                  className="w-full bg-slate-50 dark:bg-slate-800 border rounded-xl p-2.5 text-xs font-bold outline-none"
+                >
+                  <option value="MALE">👨 ذكر (بنين)</option>
+                  <option value="FEMALE">👩 أنثى (بنات)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold block mb-1">
+                  تاريخ الميلاد:
+                  {editingUser.birthDate && calculateAge(editingUser.birthDate) !== null && (
+                    <span className="text-emerald-600 dark:text-emerald-400 font-bold mr-1.5">
+                      (العمر: {calculateAge(editingUser.birthDate)} سنة)
+                    </span>
+                  )}
+                </label>
+                <input
+                  type="date"
+                  value={editingUser.birthDate || ''}
+                  onChange={e => setEditingUser({ ...editingUser, birthDate: e.target.value })}
+                  className="w-full bg-slate-50 dark:bg-slate-800 border rounded-xl p-2.5 text-xs outline-none font-mono"
+                />
+              </div>
+            </div>
+
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-xs font-semibold block mb-1">الدور (Role):</label>
@@ -1918,6 +2101,54 @@ export const AdminManagement: React.FC<AdminManagementProps> = ({
                   value={newUserPhone}
                   onChange={e => setNewUserPhone(e.target.value)}
                   className="w-full bg-slate-50 dark:bg-slate-800 border rounded-xl p-2.5 text-xs outline-none"
+                />
+              </div>
+            </div>
+
+            {/* الجنس وتاريخ الميلاد للمستخدم الجديد */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-semibold block mb-1">الجنس:</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setNewUserGender('MALE')}
+                    className={`py-2 px-3 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer ${
+                      newUserGender === 'MALE'
+                        ? 'bg-blue-50 dark:bg-blue-950/60 border-blue-500 text-blue-700 dark:text-blue-300 ring-2 ring-blue-500/20'
+                        : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400'
+                    }`}
+                  >
+                    <span>👨 ذكر (بنين)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNewUserGender('FEMALE')}
+                    className={`py-2 px-3 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer ${
+                      newUserGender === 'FEMALE'
+                        ? 'bg-rose-50 dark:bg-rose-950/60 border-rose-500 text-rose-700 dark:text-rose-300 ring-2 ring-rose-500/20'
+                        : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400'
+                    }`}
+                  >
+                    <span>👩 أنثى (بنات)</span>
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold block mb-1">
+                  تاريخ الميلاد:
+                  {newUserBirthDate && calculateAge(newUserBirthDate) !== null && (
+                    <span className="text-emerald-600 dark:text-emerald-400 font-bold mr-1.5">
+                      (العمر: {calculateAge(newUserBirthDate)} سنة)
+                    </span>
+                  )}
+                </label>
+                <input
+                  type="date"
+                  value={newUserBirthDate}
+                  onChange={e => setNewUserBirthDate(e.target.value)}
+                  className="w-full bg-slate-50 dark:bg-slate-800 border rounded-xl p-2.5 text-xs outline-none font-mono"
                 />
               </div>
             </div>
