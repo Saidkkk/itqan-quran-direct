@@ -643,25 +643,54 @@ app.post('/api/v1/users', async (req: Request, res: Response) => {
       resolvedSupervisorId = supervisorId;
     }
 
-    const result = await pool.query(
-      `INSERT INTO ${SCHEMA}.users (name, phone, email, password_hash, role, gender, birth_date, country_id, dialect_id, supervisor_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-       RETURNING id, name, phone, email, role, gender, TO_CHAR(birth_date, 'YYYY-MM-DD') AS "birthDate",
-                 country_id AS "countryId", dialect_id AS "dialectId",
-                 supervisor_id AS "supervisorId", is_active AS "isActive", created_at AS "createdAt";`,
-      [
-        cleanName,
-        cleanPhone,
-        cleanEmail,
-        password || '123456',
-        cleanRole,
-        cleanGender,
-        cleanBirthDate,
-        resolvedCountryId,
-        null, // dialect_id
-        resolvedSupervisorId
-      ]
-    );
+    let result;
+    try {
+      result = await pool.query(
+        `INSERT INTO ${SCHEMA}.users (name, phone, email, password_hash, role, gender, birth_date, country_id, dialect_id, supervisor_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         RETURNING id, name, phone, email, role, gender, TO_CHAR(birth_date, 'YYYY-MM-DD') AS "birthDate",
+                   country_id AS "countryId", dialect_id AS "dialectId",
+                   supervisor_id AS "supervisorId", is_active AS "isActive", created_at AS "createdAt";`,
+        [
+          cleanName,
+          cleanPhone,
+          cleanEmail,
+          password || '123456',
+          cleanRole,
+          cleanGender,
+          cleanBirthDate,
+          resolvedCountryId,
+          null, // dialect_id
+          resolvedSupervisorId
+        ]
+      );
+    } catch (insertErr: any) {
+      if (insertErr.code === '42703' || insertErr.message.includes('gender') || insertErr.message.includes('birth_date')) {
+        await ensureUserColumns();
+        // إعادة المحاولة بعد إنشاء الأعمدة
+        result = await pool.query(
+          `INSERT INTO ${SCHEMA}.users (name, phone, email, password_hash, role, gender, birth_date, country_id, dialect_id, supervisor_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+           RETURNING id, name, phone, email, role, gender, TO_CHAR(birth_date, 'YYYY-MM-DD') AS "birthDate",
+                     country_id AS "countryId", dialect_id AS "dialectId",
+                     supervisor_id AS "supervisorId", is_active AS "isActive", created_at AS "createdAt";`,
+          [
+            cleanName,
+            cleanPhone,
+            cleanEmail,
+            password || '123456',
+            cleanRole,
+            cleanGender,
+            cleanBirthDate,
+            resolvedCountryId,
+            null, // dialect_id
+            resolvedSupervisorId
+          ]
+        );
+      } else {
+        throw insertErr;
+      }
+    }
 
     console.log(`✅ تم إنشاء مستخدم جديد بنجاح في PostgreSQL:`, result.rows[0]);
     res.status(201).json(result.rows[0]);
@@ -681,32 +710,68 @@ app.put('/api/v1/users/:id', async (req: Request, res: Response) => {
     const cleanGender = gender ? (gender === 'FEMALE' ? 'FEMALE' : 'MALE') : null;
     const cleanBirthDate = birthDate !== undefined ? (birthDate ? birthDate : null) : undefined;
 
-    const result = await pool.query(
-      `UPDATE ${SCHEMA}.users
-       SET name = COALESCE($1, name),
-           phone = COALESCE($2, phone),
-           email = COALESCE($3, email),
-           role = COALESCE($4, role),
-           gender = COALESCE($5, gender),
-           birth_date = CASE WHEN $6::BOOLEAN THEN $7::DATE ELSE birth_date END,
-           is_active = COALESCE($8, is_active),
-           updated_at = NOW()
-       WHERE id = $9
-       RETURNING id, name, phone, email, role, gender, TO_CHAR(birth_date, 'YYYY-MM-DD') AS "birthDate",
-                 country_id AS "countryId", dialect_id AS "dialectId",
-                 supervisor_id AS "supervisorId", is_active AS "isActive", created_at AS "createdAt";`,
-      [
-        name,
-        phone,
-        email,
-        role,
-        cleanGender,
-        cleanBirthDate !== undefined,
-        cleanBirthDate || null,
-        isActive,
-        id
-      ]
-    );
+    let result;
+    try {
+      result = await pool.query(
+        `UPDATE ${SCHEMA}.users
+         SET name = COALESCE($1, name),
+             phone = COALESCE($2, phone),
+             email = COALESCE($3, email),
+             role = COALESCE($4, role),
+             gender = COALESCE($5, gender),
+             birth_date = CASE WHEN $6::BOOLEAN THEN $7::DATE ELSE birth_date END,
+             is_active = COALESCE($8, is_active),
+             updated_at = NOW()
+         WHERE id = $9
+         RETURNING id, name, phone, email, role, gender, TO_CHAR(birth_date, 'YYYY-MM-DD') AS "birthDate",
+                   country_id AS "countryId", dialect_id AS "dialectId",
+                   supervisor_id AS "supervisorId", is_active AS "isActive", created_at AS "createdAt";`,
+        [
+          name,
+          phone,
+          email,
+          role,
+          cleanGender,
+          cleanBirthDate !== undefined,
+          cleanBirthDate || null,
+          isActive,
+          id
+        ]
+      );
+    } catch (updateErr: any) {
+      if (updateErr.code === '42703' || updateErr.message.includes('gender') || updateErr.message.includes('birth_date')) {
+        await ensureUserColumns();
+        // إعادة المحاولة بعد إنشاء الأعمدة
+        result = await pool.query(
+          `UPDATE ${SCHEMA}.users
+           SET name = COALESCE($1, name),
+               phone = COALESCE($2, phone),
+               email = COALESCE($3, email),
+               role = COALESCE($4, role),
+               gender = COALESCE($5, gender),
+               birth_date = CASE WHEN $6::BOOLEAN THEN $7::DATE ELSE birth_date END,
+               is_active = COALESCE($8, is_active),
+               updated_at = NOW()
+           WHERE id = $9
+           RETURNING id, name, phone, email, role, gender, TO_CHAR(birth_date, 'YYYY-MM-DD') AS "birthDate",
+                     country_id AS "countryId", dialect_id AS "dialectId",
+                     supervisor_id AS "supervisorId", is_active AS "isActive", created_at AS "createdAt";`,
+          [
+            name,
+            phone,
+            email,
+            role,
+            cleanGender,
+            cleanBirthDate !== undefined,
+            cleanBirthDate || null,
+            isActive,
+            id
+          ]
+        );
+      } else {
+        throw updateErr;
+      }
+    }
 
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'المستخدم غير موجود' });
