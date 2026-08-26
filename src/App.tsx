@@ -276,6 +276,7 @@ export default function App() {
           <ReportsView
             currentUser={currentUser}
             users={users}
+            countries={countries}
             halaqat={halaqat}
             sessions={sessions}
             enrollments={enrollments}
